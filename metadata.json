@@ -1,0 +1,5 @@
+{
+  "name": "Intelligent NFC Attendance System",
+  "description": "A professional attendance control panel that simulates NFC card reading, displays records visually, and prepares a scalable architecture for future AI integration with Gemini.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,227 @@
+<div class="flex h-screen bg-bg_main font-sans text-text_main">
+  <!-- Left Panel: Controls & Info -->
+  <aside class="w-1/3 max-w-sm bg-white border-r border-gray-200 p-6 flex flex-col space-y-6 shadow-lg">
+    <div>
+        <h1 class="text-2xl font-bold text-primary mb-2 flex items-center gap-2">
+            <span>Evento: {{ eventName() }}</span>
+            <button (click)="openEditNameModal()" class="text-gray-400 hover:text-primary transition-colors" title="Editar nombre del evento">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" />
+                </svg>
+            </button>
+        </h1>
+        <p class="text-sm text-gray-500">Panel de Control</p>
+    </div>
+
+    <!-- Stats -->
+    <div class="bg-primary/10 p-4 rounded-xl text-center grid grid-cols-2 gap-4">
+        <div>
+        <div class="text-4xl font-extrabold text-primary">{{ totalRecords() }}</div>
+        <div class="text-md text-gray-600">Total de Registros</div>
+        </div>
+        <div>
+        <div class="text-4xl font-extrabold text-primary">{{ uniqueRecords() }}</div>
+        <div class="text-md text-gray-600">Asistentes Únicos</div>
+        </div>
+    </div>
+    
+    <!-- NFC Connector Status -->
+    <div>
+      <h2 class="text-lg font-bold text-gray-700 mb-2">Estado del Conector</h2>
+      @switch (nfcStatus()) {
+        @case ('connector_running_reader') {
+          <div class="flex items-center p-3 rounded-lg bg-green-100 border border-green-200">
+            <span class="text-3xl mr-3 text-green-500">●</span>
+            <div>
+              <div class="font-bold text-md text-green-800 flex items-center gap-2">
+                <span>Lector Conectado</span>
+                @if(isSimulationMode()) {
+                  <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-accent text-white">SIMULACIÓN</span>
+                }
+              </div>
+              <div class="text-sm text-green-700">Listo para leer tarjetas.</div>
+            </div>
+          </div>
+        }
+        @case ('connector_running_no_reader') {
+          <div class="flex items-center p-3 rounded-lg bg-yellow-100 border border-yellow-200">
+            <span class="text-3xl mr-3 text-yellow-500">●</span>
+            <div>
+              <div class="font-bold text-md text-yellow-800">Conector Activo</div>
+              <div class="text-sm text-yellow-700">No se detecta ningún lector NFC.</div>
+            </div>
+          </div>
+        }
+        @case ('connector_unreachable') {
+          <div class="flex items-center p-3 rounded-lg bg-red-100 border border-red-200">
+            <div class="flex-shrink-0">
+                <svg class="h-8 w-8 text-red-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <div class="ml-4">
+              <div class="font-bold text-md text-red-800">Conector Inaccesible</div>
+              <div class="text-sm text-red-700">Reintentando conexión automáticamente...</div>
+            </div>
+          </div>
+        }
+        @case ('checking') {
+          <div class="flex items-center p-3 rounded-lg bg-gray-100 border border-gray-200">
+            <div class="flex-shrink-0">
+                <svg class="h-8 w-8 text-gray-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <div class="ml-4">
+              <div class="font-bold text-md text-gray-700">Comprobando...</div>
+              <div class="text-sm text-gray-600">Buscando conector local...</div>
+            </div>
+          </div>
+        }
+      }
+    </div>
+
+    <!-- Simulation Button -->
+    <div class="mt-2">
+        <button (click)="toggleSimulation()"
+                class="w-full font-bold py-2 px-4 rounded-lg transition-colors duration-300 text-white"
+                [class.bg-accent]="isSimulationMode()"
+                [class.hover:bg-yellow-600]="isSimulationMode()"
+                [class.bg-blue-500]="!isSimulationMode()"
+                [class.hover:bg-blue-600]="!isSimulationMode()">
+            @if (isSimulationMode()) {
+                <span>Detener Simulación</span>
+            } @else {
+                <span>Iniciar Simulación de Lector</span>
+            }
+        </button>
+        @if (!isSimulationMode() && nfcStatus() !== 'connector_running_reader') {
+            <p class="text-xs text-gray-500 mt-2 text-center">Use esto si no tiene un lector NFC físico conectado.</p>
+        }
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="flex-grow flex flex-col gap-4 justify-end pt-4">
+        <button (click)="openManualEntryModal()" class="w-full bg-gray-600 text-white font-bold py-3 rounded-lg hover:bg-gray-700 transition duration-300 shadow-md">
+        Registrar Sin Tarjeta
+        </button>
+        <button (click)="openCancelModal()" class="w-full bg-gray-400 text-white font-bold py-2 rounded-lg hover:bg-gray-500 transition duration-300">
+        Volver al Menú
+        </button>
+    </div>
+  </aside>
+
+  <!-- Right/Center Panel: Records List -->
+  <main class="flex-grow flex flex-col">
+    <div class="p-6 flex justify-end items-start">
+        <button (click)="openFinishModal()" class="w-auto bg-error text-white font-bold py-3 px-6 rounded-lg text-lg hover:bg-red-700 transition duration-300 shadow-lg">
+            Finalizar sesión y generar Excel
+        </button>
+    </div>
+    <div class="flex-grow px-6 pb-6 overflow-hidden">
+        <div class="h-full bg-gray-200/50 rounded-lg p-4 overflow-y-auto shadow-inner">
+            <div class="flex flex-col gap-3">
+            @for (record of records(); track record.timestamp) {
+                <app-record-card [record]="record"></app-record-card>
+            } @empty {
+                <div class="flex items-center justify-center h-full">
+                <p class="text-gray-500 text-lg">Esperando registros...</p>
+                </div>
+            }
+            </div>
+        </div>
+    </div>
+  </main>
+</div>
+
+
+<!-- Modal for Manual Entry -->
+@if (isManualEntryModalVisible()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" (click)="closeManualEntryModal()">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" (click)="$event.stopPropagation()">
+      <h3 class="text-2xl font-bold text-gray-800 mb-4">Registro Manual</h3>
+      <p class="text-gray-600 mb-6">Ingrese el nombre del asistente que no tiene tarjeta NFC.</p>
+      <input 
+        #manualNameInput 
+        (keyup.enter)="submitManualEntry(manualNameInput.value)"
+        type="text" 
+        placeholder="Nombre completo" 
+        class="w-full px-4 py-3 bg-gray-700 text-white placeholder-gray-400 border-2 border-accent rounded-lg focus:ring-2 focus:ring-accent focus:outline-none transition-colors duration-300"
+        autofocus
+      >
+      <div class="flex justify-end gap-4 mt-6">
+        <button (click)="closeManualEntryModal()" class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+          Cancelar
+        </button>
+        <button (click)="submitManualEntry(manualNameInput.value)" class="px-6 py-2 bg-primary text-white rounded-lg hover:bg-accent transition-colors">
+          Registrar
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Modal for Finishing Session -->
+@if (isFinishModalVisible()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" (click)="closeFinishModal()">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" (click)="$event.stopPropagation()">
+      <h3 class="text-2xl font-bold text-gray-800 mb-4">Confirmar Finalización</h3>
+      <p class="text-gray-600 mb-6">¿Está seguro de que desea finalizar la sesión actual? Se generará un informe de Excel con todos los registros.</p>
+      <div class="flex justify-end gap-4 mt-6">
+        <button (click)="closeFinishModal()" class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+          Cancelar
+        </button>
+        <button (click)="confirmFinishSession()" class="px-6 py-2 bg-error text-white rounded-lg hover:bg-red-700 transition-colors">
+          Confirmar y Exportar
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Modal for Editing Event Name -->
+@if (isEditNameModalVisible()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" (click)="closeEditNameModal()">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" (click)="$event.stopPropagation()">
+      <h3 class="text-2xl font-bold text-gray-800 mb-4">Editar Nombre del Evento</h3>
+      <p class="text-gray-600 mb-6">Ingrese el nuevo nombre para la sesión actual.</p>
+      <input 
+        #editNameInput
+        [value]="eventName()"
+        (keyup.enter)="submitEditName(editNameInput.value)"
+        type="text" 
+        placeholder="Nombre del evento" 
+        class="w-full px-4 py-3 bg-gray-700 text-white placeholder-gray-400 border-2 border-accent rounded-lg focus:ring-2 focus:ring-accent focus:outline-none transition-colors duration-300"
+        autofocus
+      >
+      <div class="flex justify-end gap-4 mt-6">
+        <button (click)="closeEditNameModal()" class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+          Cancelar
+        </button>
+        <button (click)="submitEditName(editNameInput.value)" class="px-6 py-2 bg-primary text-white rounded-lg hover:bg-accent transition-colors">
+          Guardar Cambios
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Modal for Canceling Session -->
+@if (isCancelModalVisible()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" (click)="closeCancelModal()">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md" (click)="$event.stopPropagation()">
+      <h3 class="text-2xl font-bold text-gray-800 mb-4">Confirmar Salida</h3>
+      <p class="text-gray-600 mb-6">¿Está seguro de que desea salir? La sesión actual se cerrará y los registros no se guardarán.</p>
+      <div class="flex justify-end gap-4 mt-6">
+        <button (click)="closeCancelModal()" class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+          Permanecer
+        </button>
+        <button (click)="confirmCancel()" class="px-6 py-2 bg-error text-white rounded-lg hover:bg-red-700 transition-colors">
+          Salir y Descartar
+        </button>
+      </div>
+    </div>
+  </div>
+}

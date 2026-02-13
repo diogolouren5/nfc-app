@@ -1,0 +1,8 @@
+
+<div class="h-screen w-screen text-text_main">
+  @if (isSessionActive()) {
+    <app-event-view></app-event-view>
+  } @else {
+    <app-start-screen></app-start-screen>
+  }
+</div>
