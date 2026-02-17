@@ -11,16 +11,18 @@ export class NfcService {
   private dataService = inject(DataService);
   status = signal<ConnectorStatus>('checking');
   isSimulationMode = signal(false);
+  stationId = signal(this.resolveStationId());
+  agentDownloadUrl = signal('');
+
   private pollingInterval: number | null = null;
   private reconnectInterval: number | null = null;
   private simulationInterval: number | null = null;
   private readErrorCount = 0;
   private readonly MAX_READ_ERRORS = 3;
+  private lastEventId = 0;
 
   private uidRead = new Subject<string>();
   public uidRead$: Observable<string> = this.uidRead.asObservable();
-
-  private readonly API_BASE_URL = '';
 
   toggleSimulationMode(): void {
     this.isSimulationMode.update(on => !on);
@@ -34,6 +36,39 @@ export class NfcService {
     }
   }
 
+  async ensureReadyForSessionStart(): Promise<boolean> {
+    // Allow forcing simulation for local/dev use via query param or localStorage.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlFlag = params.get('simulate_bridge');
+      const localFlag = localStorage.getItem('simulate_bridge');
+      if (urlFlag === '1' || localFlag === '1') {
+        if (!this.isSimulationMode()) this.isSimulationMode.set(true);
+        return true;
+      }
+    } catch (e) {
+      // ignore URL/localStorage issues and continue with normal checks
+    }
+
+    await this.checkConnectorStatus();
+    return this.status() === 'connector_running_reader' || this.isSimulationMode();
+  }
+
+  async refreshAgentDownloadInfo(): Promise<void> {
+    try {
+      const response = await fetch('/api/agent/download-info');
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      if (typeof data.download_url === 'string') {
+        this.agentDownloadUrl.set(data.download_url);
+      }
+    } catch (error) {
+      console.warn('Could not load agent download info', error);
+    }
+  }
+
   async checkConnectorStatus(): Promise<void> {
     if (this.isSimulationMode()) return;
 
@@ -42,7 +77,7 @@ export class NfcService {
     }
     this.status.set('checking');
     try {
-      const response = await fetch(`/api/status`);
+      const response = await fetch(`/api/stations/${encodeURIComponent(this.stationId())}/status`);
       if (!response.ok) {
         throw new Error(`Connector responded with status: ${response.status}`);
       }
@@ -50,12 +85,15 @@ export class NfcService {
 
       this.stopReconnecting(); // Connection successful, stop retry attempts.
 
-      if (data.status === 'reader_detected') {
+      if (data.online && data.reader_connected) {
         this.status.set('connector_running_reader');
         this.startPollingForReads();
-      } else {
+      } else if (data.online) {
         this.status.set('connector_running_no_reader');
         this.startReconnecting(); // Keep checking for a reader to be attached.
+      } else {
+        this.status.set('connector_unreachable');
+        this.startReconnecting();
       }
     } catch (error) {
       this.diagnoseFetchError(error);
@@ -77,12 +115,19 @@ export class NfcService {
       }
 
       try {
-        const response = await fetch(`/api/read`);
+        const response = await fetch(`/api/stations/${encodeURIComponent(this.stationId())}/events?after_event_id=${this.lastEventId}&limit=50`);
         if (response.ok) {
           this.readErrorCount = 0; // Reset on successful read
           const data = await response.json();
-          if (data && data.uid) {
-            this.uidRead.next(data.uid);
+          if (data && Array.isArray(data.events)) {
+            for (const event of data.events) {
+              if (event?.uid) {
+                this.uidRead.next(event.uid);
+              }
+            }
+          }
+          if (typeof data?.last_event_id === 'number') {
+            this.lastEventId = data.last_event_id;
           }
         } else {
            throw new Error(`Read endpoint responded with status: ${response.status}`);
@@ -157,5 +202,23 @@ export class NfcService {
       this.stopPollingForReads();
       this.stopReconnecting();
       this.stopSimulation();
+  }
+
+  private resolveStationId(): string {
+    const stationFromUrl = new URLSearchParams(window.location.search).get('station');
+    if (stationFromUrl && stationFromUrl.trim().length > 0) {
+      localStorage.setItem('nfc_station_id', stationFromUrl.trim());
+      return stationFromUrl.trim();
+    }
+
+    const key = 'nfc_station_id';
+    const existingValue = localStorage.getItem(key);
+    if (existingValue && existingValue.trim().length > 0) {
+      return existingValue.trim();
+    }
+
+    const defaultValue = 'local-station';
+    localStorage.setItem(key, defaultValue);
+    return defaultValue;
   }
 }
