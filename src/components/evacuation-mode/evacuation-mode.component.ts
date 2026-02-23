@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, output, signal } from '@angular/core';
 
 declare const XLSX: any;
@@ -13,6 +13,9 @@ interface TeamColumnMap {
   firstName: MaybeIndex;
   email: MaybeIndex;
   phone: MaybeIndex;
+  area: MaybeIndex;
+  subArea: MaybeIndex;
+  department: MaybeIndex;
   emergencyRole: MaybeIndex;
 }
 
@@ -34,6 +37,9 @@ interface TeamMemberRow {
   fullName: string;
   email: string;
   phone: string;
+  area: string;
+  subArea: string;
+  department: string;
   emergencyRole: string;
 }
 
@@ -65,6 +71,9 @@ interface MatchResultRow {
   emergencyRole: string;
   email: string;
   phone: string;
+  area: string;
+  subArea: string;
+  department: string;
   accessFound: boolean;
   accessFullName: string;
   company: string;
@@ -129,12 +138,15 @@ export class EvacuationModeComponent {
     const map = this.teamColumnMap();
     if (!map) return [];
     return [
-      this.formatMapping('Nº empleado', map.employeeNumber),
+      this.formatMapping('NÂº empleado', map.employeeNumber),
       this.formatMapping('Nombre', map.firstName),
       this.formatMapping('Apellido 1', map.firstSurname),
       this.formatMapping('Apellido 2', map.secondSurname),
       this.formatMapping('Email', map.email),
-      this.formatMapping('Teléfono', map.phone),
+      this.formatMapping('TelÃ©fono', map.phone),
+      this.formatMapping('Area', map.area),
+      this.formatMapping('Subarea', map.subArea),
+      this.formatMapping('Departamento', map.department),
       this.formatMapping('Rol emergencias', map.emergencyRole),
     ];
   });
@@ -143,11 +155,11 @@ export class EvacuationModeComponent {
     const map = this.accessColumnMap();
     if (!map) return [];
     return [
-      this.formatMapping('Nº empleado', map.employeeNumber),
+      this.formatMapping('NÂº empleado', map.employeeNumber),
       this.formatMapping('Nombre', map.firstName),
       this.formatMapping('Apellido', map.surname),
       this.formatMapping('Empresa', map.company),
-      this.formatMapping('Último acceso', map.lastAccess),
+      this.formatMapping('Ãšltimo acceso', map.lastAccess),
     ];
   });
 
@@ -191,10 +203,10 @@ export class EvacuationModeComponent {
       this.accessMetadata.set(this.extractAccessMetadata(accessRows, accessMap.headerRowIndex));
 
       const missingMappings: string[] = [];
-      if (teamMap.employeeNumber === null) missingMappings.push('Equipo: Nº empleado');
+      if (teamMap.employeeNumber === null) missingMappings.push('Equipo: NÂº empleado');
       if (teamMap.emergencyRole === null) missingMappings.push('Equipo: Rol Emergencias');
-      if (accessMap.employeeNumber === null) missingMappings.push('Accesos: Nº empleado');
-      if (accessMap.lastAccess === null) missingMappings.push('Accesos: Último acceso');
+      if (accessMap.employeeNumber === null) missingMappings.push('Accesos: NÂº empleado');
+      if (accessMap.lastAccess === null) missingMappings.push('Accesos: Ãšltimo acceso');
 
       if (missingMappings.length > 0) {
         throw new Error(`No se pudieron detectar columnas obligatorias: ${missingMappings.join(', ')}`);
@@ -224,6 +236,9 @@ export class EvacuationModeComponent {
           emergencyRole: member.emergencyRole,
           email: member.email,
           phone: member.phone,
+          area: member.area,
+          subArea: member.subArea,
+          department: member.department,
           accessFound: !!access,
           accessFullName: access?.fullName ?? '',
           company: access?.company ?? '',
@@ -266,59 +281,62 @@ export class EvacuationModeComponent {
     const summary = this.summary();
     const metadata = this.accessMetadata();
     const duplicates = [
-      ...this.duplicateTeamRows().map((d) => ({ origen: 'Equipo evacuación', ...d })),
+      ...this.duplicateTeamRows().map((d) => ({ origen: 'Equipo evacuaciÃ³n', ...d })),
       ...this.duplicateAccessRows().map((d) => ({ origen: 'Accesos', ...d })),
     ];
 
     const wb = XLSX.utils.book_new();
 
     const summarySheet = XLSX.utils.aoa_to_sheet([
-      ['Resumen evacuación'],
+      ['Resumen evacuaciÃ³n'],
       [],
-      ['Fecha de exportación', new Date().toLocaleString()],
-      ['Total equipo evacuación', summary.totalTeam],
+      ['Fecha de exportaciÃ³n', new Date().toLocaleString()],
+      ['Total equipo evacuaciÃ³n', summary.totalTeam],
       ['Encontrados en accesos', summary.found],
       ['No encontrados', summary.missing],
       ['Incidencias', summary.incidents],
       [],
       ['Metadata informe accesos'],
-      ['Título informe', metadata?.reportTitle ?? ''],
+      ['TÃ­tulo informe', metadata?.reportTitle ?? ''],
       ['Usuario', metadata?.user ?? ''],
       ['Fecha informe', metadata?.reportDate ?? ''],
       ['Resultados consulta', metadata?.resultCount ?? ''],
-      ['Área', metadata?.area ?? ''],
+      ['Ãrea', metadata?.area ?? ''],
     ]);
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Resumen');
 
     const missingSheet = XLSX.utils.json_to_sheet(this.missingRows().map((r) => ({
-      'Nº empleado': r.employeeNumber,
+      'NÂº empleado': r.employeeNumber,
       Nombre: r.fullName,
       'Rol emergencias': r.emergencyRole,
       Email: r.email,
-      Teléfono: r.phone,
+      'TelÃ©fono': r.phone,
     })));
     XLSX.utils.book_append_sheet(wb, missingSheet, 'No_encontrados');
 
     const foundSheet = XLSX.utils.json_to_sheet(this.foundRows().map((r) => ({
-      'Nº empleado': r.employeeNumber,
+      'NÂº empleado': r.employeeNumber,
       Nombre: r.fullName,
       'Rol emergencias': r.emergencyRole,
       'Nombre en accesos': r.accessFullName,
-      Empresa: r.company,
-      'Último acceso': r.lastAccess,
+      Area: r.area,
+      Subarea: r.subArea,
+      Departamento: r.department,
+      Email: r.email,
+      'TelÃ©fono': r.phone,
     })));
     XLSX.utils.book_append_sheet(wb, foundSheet, 'Encontrados');
 
     const duplicatesSheet = XLSX.utils.json_to_sheet(duplicates.map((d) => ({
       Origen: d.origen,
-      'Nº empleado': d.employeeNumber,
+      'NÂº empleado': d.employeeNumber,
       Veces: d.count,
       Filas: d.rowNumbers.join(', '),
     })));
     XLSX.utils.book_append_sheet(wb, duplicatesSheet, 'Duplicados');
 
     const invalidSheet = XLSX.utils.json_to_sheet(this.invalidRows().map((r) => ({
-      Origen: r.source === 'team' ? 'Equipo evacuación' : 'Accesos',
+      Origen: r.source === 'team' ? 'Equipo evacuaciÃ³n' : 'Accesos',
       Fila: r.rowNumber,
       Motivo: r.reason,
     })));
@@ -395,7 +413,10 @@ export class EvacuationModeComponent {
             firstName: 3,        // D
             email: 4,            // E
             phone: 5,            // F
-            emergencyRole: 31,   // AF
+            area: this.findHeaderIndex(normalizedRow1, ['AREA']),
+            subArea: this.findHeaderIndex(normalizedRow1, ['SUB AREA', 'SUBAREA']),
+            department: this.findHeaderIndex(normalizedRow1, ['DEPARTAMENTO']),
+            emergencyRole: this.findHeaderIndex(normalizedRow1, ['ROL EMERGENCIAS']) ?? 31,
           },
         };
       }
@@ -418,14 +439,14 @@ export class EvacuationModeComponent {
     }
 
     if (!best) {
-      throw new Error('No se pudo leer ninguna hoja del Excel del equipo de evacuación.');
+      throw new Error('No se pudo leer ninguna hoja del Excel del equipo de evacuaciÃ³n.');
     }
 
     return { rows: best.rows, map: best.map };
   }
 
   private selectBestAccessSheet(sheets: WorkbookSheetRows[]): { rows: string[][]; map: AccessColumnMap } {
-    // Plantilla real del snapshot: hoja con encabezado "Informe de Evacuación" y cabecera tabular con "Último acceso".
+    // Plantilla real del snapshot: hoja con encabezado "Informe de EvacuaciÃ³n" y cabecera tabular con "Ãšltimo acceso".
     for (const sheet of sheets) {
       const topRows = (sheet.rows.slice(0, 10) ?? []).map((r) => r.filter(Boolean).join(' ')).join(' | ');
       const topText = this.stripAccents(topRows).toUpperCase();
@@ -481,6 +502,9 @@ export class EvacuationModeComponent {
       firstName: null,
       email: null,
       phone: null,
+      area: null,
+      subArea: null,
+      department: null,
       emergencyRole: null,
     };
 
@@ -500,6 +524,9 @@ export class EvacuationModeComponent {
           firstName,
           email: this.findHeaderIndex(normalized, ['EMAIL', 'CORREO', 'MAIL']),
           phone: this.findHeaderIndex(normalized, ['TELEFONO', 'MOVIL', 'TEL']),
+          area: this.findHeaderIndex(normalized, ['AREA']),
+          subArea: this.findHeaderIndex(normalized, ['SUB AREA', 'SUBAREA']),
+          department: this.findHeaderIndex(normalized, ['DEPARTAMENTO']),
           emergencyRole: role,
         };
       }
@@ -519,6 +546,9 @@ export class EvacuationModeComponent {
           firstName: 3,        // D
           email: 4,            // E
           phone: 5,            // F
+          area: this.findHeaderIndex(normalized, ['AREA']),
+          subArea: this.findHeaderIndex(normalized, ['SUB AREA', 'SUBAREA']),
+          department: this.findHeaderIndex(normalized, ['DEPARTAMENTO']),
           emergencyRole: roleIndex,
         };
       }
@@ -559,7 +589,7 @@ export class EvacuationModeComponent {
         };
       }
 
-      // Fallback para la plantilla real del snapshot: cabecera típica en fila ~7, columnas B..I.
+      // Fallback para la plantilla real del snapshot: cabecera tÃ­pica en fila ~7, columnas B..I.
       const hasKnownAccessShape =
         normalized.some((h) => h.includes('ULTIMO ACCESO')) &&
         normalized.some((h) => h.includes('APELLIDO')) &&
@@ -616,7 +646,7 @@ export class EvacuationModeComponent {
 
       const employee = this.normalizeEmployeeNumber(this.getCell(row, map.employeeNumber));
       if (!employee) {
-        invalidRows.push({ source: 'team', rowNumber: i + 1, reason: 'Nº empleado vacío o inválido' });
+        invalidRows.push({ source: 'team', rowNumber: i + 1, reason: 'NÂº empleado vacÃ­o o invÃ¡lido' });
         continue;
       }
 
@@ -633,6 +663,9 @@ export class EvacuationModeComponent {
         fullName: [firstName, firstSurname, secondSurname].filter(Boolean).join(' ').trim(),
         email: this.getCell(row, map.email),
         phone: this.getCell(row, map.phone),
+        area: this.getCell(row, map.area),
+        subArea: this.getCell(row, map.subArea),
+        department: this.getCell(row, map.department),
         emergencyRole: emergencyRoleRaw,
       });
     }
@@ -720,9 +753,9 @@ export class EvacuationModeComponent {
 
   private normalizeHeader(value: string): string {
     return this.stripAccents(this.cellToText(value))
-      .replace(/[º°ª]/g, ' ')
+      .replace(/[ÂºÂ°Âª]/g, ' ')
       .toUpperCase()
-      // Quita cualquier símbolo raro (incluye NBSP, comillas especiales, etc.)
+      // Quita cualquier sÃ­mbolo raro (incluye NBSP, comillas especiales, etc.)
       .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -768,6 +801,7 @@ export class EvacuationModeComponent {
     return out;
   }
 }
+
 
 
 
