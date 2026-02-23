@@ -17,7 +17,7 @@ export class StartScreenComponent {
   readonly defaultEventName = 'Formación 1';
 
   async startEvent(eventNameInput: HTMLInputElement): Promise<void> {
-    const eventName = eventNameInput.value.trim();
+    const eventName = eventNameInput.value.trim() || this.defaultEventName;
 
     if (!eventName) {
       alert('Por favor, ingrese un nombre para el evento.');

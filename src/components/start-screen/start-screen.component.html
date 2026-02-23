@@ -11,10 +11,9 @@
       <input
         #eventNameInput
         list="event-name-options"
-        [value]="defaultEventName"
         (keyup.enter)="startEvent(eventNameInput)"
         type="text"
-        placeholder="Nombre del evento"
+        placeholder="Formación 1"
         class="px-4 py-3 bg-gray-700 text-white placeholder-gray-400 border-2 border-accent rounded-lg w-full sm:w-80 focus:ring-2 focus:ring-accent focus:outline-none transition-colors duration-300"
       >
       <datalist id="event-name-options">
@@ -22,6 +21,8 @@
         <option value="Formación 2"></option>
         <option value="Formación 3"></option>
         <option value="Formación 4"></option>
+        <option value="PUNTO DE EVACUACIÓN 1"></option>
+        <option value="PUNTO DE EVACUACIÓN 2"></option>
       </datalist>
 
       <button
