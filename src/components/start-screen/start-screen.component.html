@@ -4,22 +4,34 @@
       Sistema de Registro NFC
     </h1>
     <p class="text-gray-600 mb-8">
-      Ingrese el nombre del evento para comenzar una nueva sesión de registro.
+      Seleccione una formacion o escriba un nombre personalizado para comenzar.
     </p>
-    <div class="flex flex-col sm:flex-row gap-4 justify-center">
-      <input 
+
+    <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+      <input
         #eventNameInput
+        list="event-name-options"
+        [value]="defaultEventName"
         (keyup.enter)="startEvent(eventNameInput)"
-        type="text" 
-        placeholder="NOMBRE DEL EVENTO" 
+        type="text"
+        placeholder="Nombre del evento"
         class="px-4 py-3 bg-gray-700 text-white placeholder-gray-400 border-2 border-accent rounded-lg w-full sm:w-80 focus:ring-2 focus:ring-accent focus:outline-none transition-colors duration-300"
       >
-      <button 
+      <datalist id="event-name-options">
+        <option value="Formación 1"></option>
+        <option value="Formación 2"></option>
+        <option value="Formación 3"></option>
+        <option value="Formación 4"></option>
+      </datalist>
+
+      <button
         (click)="startEvent(eventNameInput)"
-        class="bg-primary text-white font-bold py-3 px-8 rounded-lg hover:bg-accent transition-colors duration-300 shadow-md">
+        class="bg-primary text-white font-bold py-3 px-8 rounded-lg hover:bg-accent transition-colors duration-300 shadow-md"
+      >
         Iniciar Evento
       </button>
     </div>
+
     <p class="text-xs text-gray-500 mt-4">
       Estacion local: <span class="font-mono">{{ nfcService.stationId() }}</span>
     </p>

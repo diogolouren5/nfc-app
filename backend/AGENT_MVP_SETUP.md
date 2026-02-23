@@ -39,7 +39,9 @@ Agent behavior:
 - If offline: opens install modal and allows retry
 - Event view polls `/api/stations/{station_id}/events`
 
-Important:
+Important (current local-first setup):
 
-- The browser-generated station id is stored in localStorage key `nfc_station_id`.
-- For a station to work, the agent `NFC_STATION_ID` must match that value.
+- The backend runs in local-only mode by default (`NFC_LOCAL_ONLY_MODE=1`).
+- Any station id requested by the web or sent by the agent is normalized to `local-station`.
+- The agent also defaults to `NFC_STATION_ID=local-station`.
+- This avoids frontend/agent station mismatches in single-PC usage.

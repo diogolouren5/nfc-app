@@ -3,6 +3,7 @@ import { Observable, Subject } from 'rxjs';
 import { DataService } from './data.service';
 
 export type ConnectorStatus = 'connector_running_reader' | 'connector_running_no_reader' | 'connector_unreachable' | 'checking';
+const LOCAL_STATION_ID = 'local-station';
 
 @Injectable({
   providedIn: 'root',
@@ -37,19 +38,6 @@ export class NfcService {
   }
 
   async ensureReadyForSessionStart(): Promise<boolean> {
-    // Allow forcing simulation for local/dev use via query param or localStorage.
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const urlFlag = params.get('simulate_bridge');
-      const localFlag = localStorage.getItem('simulate_bridge');
-      if (urlFlag === '1' || localFlag === '1') {
-        if (!this.isSimulationMode()) this.isSimulationMode.set(true);
-        return true;
-      }
-    } catch (e) {
-      // ignore URL/localStorage issues and continue with normal checks
-    }
-
     await this.checkConnectorStatus();
     return this.status() === 'connector_running_reader' || this.isSimulationMode();
   }
@@ -205,20 +193,7 @@ export class NfcService {
   }
 
   private resolveStationId(): string {
-    const stationFromUrl = new URLSearchParams(window.location.search).get('station');
-    if (stationFromUrl && stationFromUrl.trim().length > 0) {
-      localStorage.setItem('nfc_station_id', stationFromUrl.trim());
-      return stationFromUrl.trim();
-    }
-
-    const key = 'nfc_station_id';
-    const existingValue = localStorage.getItem(key);
-    if (existingValue && existingValue.trim().length > 0) {
-      return existingValue.trim();
-    }
-
-    const defaultValue = 'local-station';
-    localStorage.setItem(key, defaultValue);
-    return defaultValue;
+    // Local-only mode: keep a fixed station id to avoid UI/agent mismatches.
+    return LOCAL_STATION_ID;
   }
 }

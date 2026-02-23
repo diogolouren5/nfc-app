@@ -14,9 +14,11 @@ export class StartScreenComponent {
   sessionService = inject(SessionService);
   nfcService = inject(NfcService);
   showBridgeInstallModal = signal(false);
+  readonly defaultEventName = 'Formación 1';
 
   async startEvent(eventNameInput: HTMLInputElement): Promise<void> {
     const eventName = eventNameInput.value.trim();
+
     if (!eventName) {
       alert('Por favor, ingrese un nombre para el evento.');
       return;

@@ -22,6 +22,8 @@ INACTIVITY_TIMEOUT = 0  # 0 = no auto-shutdown
 STATION_ONLINE_TTL_SECONDS = int(os.getenv("STATION_ONLINE_TTL_SECONDS", "20"))
 MAX_EVENTS_PER_STATION = int(os.getenv("MAX_EVENTS_PER_STATION", "2000"))
 SHARED_TOKEN = os.getenv("NFC_SHARED_TOKEN")
+LOCAL_ONLY_MODE = os.getenv("NFC_LOCAL_ONLY_MODE", "1") == "1"
+LOCAL_STATION_ID = os.getenv("NFC_LOCAL_STATION_ID", "local-station")
 
 # -------------------------------------------------
 # APP INIT
@@ -95,6 +97,13 @@ def sanitize_uid(uid: str) -> str:
     return uid.strip().upper()
 
 
+def normalize_station_id(station_id: str) -> str:
+    station = station_id.strip()
+    if LOCAL_ONLY_MODE:
+        return LOCAL_STATION_ID
+    return station
+
+
 # -------------------------------------------------
 # ENDPOINTS
 # -------------------------------------------------
@@ -109,13 +118,14 @@ def health():
 def reader_heartbeat(payload: ReaderHeartbeatIn, request: Request):
     update_activity()
     require_shared_token_if_configured(request)
+    station_id = normalize_station_id(payload.station_id)
 
     now = datetime.now(timezone.utc)
     client_ts = parse_iso_or_none(payload.timestamp)
 
     with stations_lock:
-        stations[payload.station_id] = {
-            "station_id": payload.station_id,
+        stations[station_id] = {
+            "station_id": station_id,
             "reader_connected": payload.reader_connected,
             "agent_version": payload.agent_version,
             "hostname": payload.hostname,
@@ -126,7 +136,7 @@ def reader_heartbeat(payload: ReaderHeartbeatIn, request: Request):
 
     return {
         "status": "ok",
-        "station_id": payload.station_id,
+        "station_id": station_id,
         "server_time": now.isoformat(),
     }
 
@@ -136,6 +146,7 @@ def reader_event(payload: ReaderEventIn, request: Request):
     update_activity()
     require_shared_token_if_configured(request)
 
+    station_id = normalize_station_id(payload.station_id)
     uid = sanitize_uid(payload.uid)
     now = datetime.now(timezone.utc)
     client_ts = parse_iso_or_none(payload.timestamp)
@@ -145,21 +156,21 @@ def reader_event(payload: ReaderEventIn, request: Request):
         global_event_id += 1
 
         # Ensure station exists/updates even if heartbeat is delayed.
-        station_info = stations.get(payload.station_id, {})
+        station_info = stations.get(station_id, {})
         station_info.update(
             {
-                "station_id": payload.station_id,
+                "station_id": station_id,
                 "reader_connected": True,
                 "last_seen": now,
                 "last_seen_iso": now.isoformat(),
             }
         )
-        stations[payload.station_id] = station_info
+        stations[station_id] = station_info
 
-        events = station_events.setdefault(payload.station_id, [])
+        events = station_events.setdefault(station_id, [])
         event_obj = {
             "event_id": global_event_id,
-            "station_id": payload.station_id,
+            "station_id": station_id,
             "uid": uid,
             "client_timestamp": client_ts.isoformat() if client_ts else None,
             "server_timestamp": now.isoformat(),
@@ -175,12 +186,13 @@ def reader_event(payload: ReaderEventIn, request: Request):
 def station_status(station_id: str):
     update_activity()
     now = datetime.now(timezone.utc)
+    effective_station_id = normalize_station_id(station_id)
 
     with stations_lock:
-        station = stations.get(station_id)
+        station = stations.get(effective_station_id)
         if not station:
             return {
-                "station_id": station_id,
+                "station_id": effective_station_id,
                 "online": False,
                 "reader_connected": False,
                 "last_seen": None,
@@ -197,7 +209,7 @@ def station_status(station_id: str):
         )
 
         return {
-            "station_id": station_id,
+            "station_id": effective_station_id,
             "online": is_online,
             "reader_connected": bool(station.get("reader_connected", False)),
             "last_seen": station.get("last_seen_iso"),
@@ -211,15 +223,16 @@ def station_status(station_id: str):
 def station_events_since(station_id: str, after_event_id: int = 0, limit: int = 100):
     update_activity()
     safe_limit = max(1, min(limit, 500))
+    effective_station_id = normalize_station_id(station_id)
 
     with stations_lock:
-        all_events = station_events.get(station_id, [])
+        all_events = station_events.get(effective_station_id, [])
         new_events = [e for e in all_events if e["event_id"] > after_event_id]
         sliced_events = new_events[:safe_limit]
         last_event_id = after_event_id if not sliced_events else sliced_events[-1]["event_id"]
 
     return {
-        "station_id": station_id,
+        "station_id": effective_station_id,
         "events": sliced_events,
         "last_event_id": last_event_id,
     }

@@ -13,12 +13,17 @@ from datetime import datetime, timezone
 
 
 CENTRAL_BASE_URL = os.getenv("NFC_CENTRAL_BASE_URL", "http://127.0.0.1:3210").rstrip("/")
-STATION_ID = os.getenv("NFC_STATION_ID", socket.gethostname())
+STATION_ID = os.getenv("NFC_STATION_ID", "local-station")
 SHARED_TOKEN = os.getenv("NFC_SHARED_TOKEN", "")
 HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("NFC_HEARTBEAT_INTERVAL_SECONDS", "5"))
 READ_POLL_INTERVAL_SECONDS = float(os.getenv("NFC_READ_POLL_INTERVAL_SECONDS", "0.25"))
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("NFC_REQUEST_TIMEOUT_SECONDS", "4"))
 SIMULATE_READS = os.getenv("SIMULATE_READS", "0") == "1"
+READER_MATCH_HINTS = tuple(
+    token.strip().upper()
+    for token in os.getenv("NFC_READER_MATCH_HINTS", "ACR122,ACS,PICC").split(",")
+    if token.strip()
+)
 
 
 def configure_from_args() -> None:
@@ -91,13 +96,19 @@ def get_acr122_reader():
     try:
         from smartcard.System import readers
 
-        for reader in readers():
-            if "ACR122" in str(reader):
+        available_readers = list(readers())
+        if not available_readers:
+            return None
+
+        # Prefer known ACR122-like names, but fallback to first available reader.
+        for reader in available_readers:
+            reader_name = str(reader).upper()
+            if any(hint in reader_name for hint in READER_MATCH_HINTS):
                 return reader
-        return None
+
+        return available_readers[0]
     except Exception as exc:
         print(f"[AGENT] Reader discovery error: {exc}")
-        return None
         return None
 
 
@@ -184,6 +195,8 @@ def run_loop():
 
 if __name__ == "__main__":
     try:
+        configure_from_args()
+        wait_for_central()
         run_loop()
     except KeyboardInterrupt:
         print("\n[AGENT] Stopped by user.")
