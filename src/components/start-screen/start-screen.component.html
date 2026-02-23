@@ -4,7 +4,7 @@
       Sistema de Registro NFC
     </h1>
     <p class="text-gray-600 mb-8">
-      Seleccione una formacion o escriba un nombre personalizado para comenzar.
+      Seleccione una formación o escriba un nombre personalizado para comenzar.
     </p>
 
     <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
@@ -34,7 +34,7 @@
     </div>
 
     <p class="text-xs text-gray-500 mt-4">
-      Estacion local: <span class="font-mono">{{ nfcService.stationId() }}</span>
+      Estación local: <span class="font-mono">{{ nfcService.stationId() }}</span>
     </p>
   </div>
 </div>
@@ -44,10 +44,10 @@
     <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-xl" (click)="$event.stopPropagation()">
       <h3 class="text-2xl font-bold text-gray-800 mb-3">NFC Bridge no disponible</h3>
       <p class="text-gray-700 mb-2">
-        No hay un agente NFC online para esta estacion. Instale o inicie el bridge local y luego pulse Reintentar.
+        No hay un agente NFC online para esta estación. Instale o inicie el bridge local y luego pulse Reintentar.
       </p>
       <p class="text-gray-600 mb-1">
-        Estacion detectada por la web:
+        Estación detectada por la web:
         <span class="font-mono">{{ nfcService.stationId() }}</span>
       </p>
       <p class="text-gray-500 text-sm mb-6">
@@ -70,7 +70,7 @@
           Cerrar
         </button>
         <button (click)="retryBridgeConnection()" class="px-6 py-2 bg-primary text-white rounded-lg hover:bg-accent transition-colors">
-          Reintentar conexion
+          Reintentar conexión
         </button>
       </div>
     </div>

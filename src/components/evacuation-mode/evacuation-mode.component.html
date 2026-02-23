@@ -1,0 +1,329 @@
+<div class="h-full w-full bg-slate-100 px-4 py-6 sm:px-6">
+  <div class="w-full max-w-7xl mx-auto">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
+        <div>
+          <h2 class="text-3xl font-bold text-primary">Modo evacuación</h2>
+          <p class="text-slate-600 mt-2 max-w-3xl">
+            Cruce del equipo de evacuación con el snapshot diario de accesos por Nº de empleado (coincidencia exacta).
+          </p>
+        </div>
+        <div class="flex gap-3">
+          <button
+            (click)="goBack()"
+            class="px-5 py-3 rounded-lg bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300 transition-colors"
+          >
+            Volver
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-6">
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="text-lg font-semibold text-slate-900 mb-2">1. Equipo de evacuación</h3>
+          <p class="text-sm text-slate-600 mb-4">Excel maestro con Nº empleado, nombre, contacto y rol de emergencias.</p>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            (change)="onTeamFileSelected($event)"
+            class="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary file:text-white file:font-semibold hover:file:bg-teal-700"
+          >
+          @if (teamFile()) {
+            <p class="text-sm text-slate-700 mt-3">
+              <span class="font-semibold">Cargado:</span> {{ teamFile()!.name }}
+            </p>
+          }
+          @if (teamColumnMap()) {
+            <div class="mt-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                Columnas detectadas (fila {{ teamColumnMap()!.headerRowIndex + 1 }})
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                @for (item of previewTeamColumns(); track item.label) {
+                  <div class="rounded-md bg-white border border-slate-200 px-3 py-2">
+                    <div class="text-slate-500 text-xs">{{ item.label }}</div>
+                    <div class="font-medium text-slate-800">{{ item.value }}</div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="text-lg font-semibold text-slate-900 mb-2">2. Snapshot de accesos</h3>
+          <p class="text-sm text-slate-600 mb-4">Excel diario de personas presentes con Nº empleado y último acceso.</p>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            (change)="onAccessFileSelected($event)"
+            class="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-700 file:text-white file:font-semibold hover:file:bg-slate-800"
+          >
+          @if (accessFile()) {
+            <p class="text-sm text-slate-700 mt-3">
+              <span class="font-semibold">Cargado:</span> {{ accessFile()!.name }}
+            </p>
+          }
+          @if (accessColumnMap()) {
+            <div class="mt-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                Columnas detectadas (fila {{ accessColumnMap()!.headerRowIndex + 1 }})
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                @for (item of previewAccessColumns(); track item.label) {
+                  <div class="rounded-md bg-white border border-slate-200 px-3 py-2">
+                    <div class="text-slate-500 text-xs">{{ item.label }}</div>
+                    <div class="font-medium text-slate-800">{{ item.value }}</div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-3 mb-4">
+        <button
+          (click)="analyzeFiles()"
+          [disabled]="!canAnalyze()"
+          class="px-5 py-3 rounded-lg text-white font-semibold shadow-md transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed bg-primary hover:bg-teal-700"
+        >
+          @if (isProcessing()) {
+            Procesando...
+          } @else {
+            Analizar cruce
+          }
+        </button>
+
+        <button
+          (click)="exportResults()"
+          [disabled]="!hasResults()"
+          class="px-5 py-3 rounded-lg font-semibold border transition-colors disabled:text-slate-400 disabled:border-slate-200 disabled:bg-slate-100 disabled:cursor-not-allowed border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100"
+        >
+          Exportar resultado a Excel
+        </button>
+      </div>
+
+      @if (processingError()) {
+        <div class="mb-6 rounded-xl border border-red-200 bg-red-50 text-red-900 px-4 py-3">
+          <div class="font-semibold">Error de procesamiento</div>
+          <div class="text-sm mt-1">{{ processingError() }}</div>
+        </div>
+      }
+
+      @if (accessMetadata() && (accessMetadata()!.reportTitle || accessMetadata()!.reportDate || accessMetadata()!.user || accessMetadata()!.area)) {
+        <div class="mb-6 rounded-xl border border-slate-200 bg-white p-4">
+          <h3 class="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Metadata informe accesos</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-slate-500 text-xs">Informe</div>
+              <div class="text-slate-800 font-medium">{{ accessMetadata()!.reportTitle || '-' }}</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-slate-500 text-xs">Usuario</div>
+              <div class="text-slate-800 font-medium">{{ accessMetadata()!.user || '-' }}</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-slate-500 text-xs">Fecha</div>
+              <div class="text-slate-800 font-medium">{{ accessMetadata()!.reportDate || '-' }}</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-slate-500 text-xs">Área / resultados</div>
+              <div class="text-slate-800 font-medium">
+                {{ accessMetadata()!.area || '-' }}
+                @if (accessMetadata()!.resultCount) {
+                  <span class="block text-xs text-slate-500 mt-1">{{ accessMetadata()!.resultCount }}</span>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+
+      @if (hasResults()) {
+        <div class="space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="rounded-xl border border-slate-200 bg-white p-4">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Equipo evacuación</p>
+              <p class="text-3xl font-bold text-slate-900 mt-2">{{ summary().totalTeam }}</p>
+            </div>
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Encontrados</p>
+              <p class="text-3xl font-bold text-emerald-900 mt-2">{{ summary().found }}</p>
+            </div>
+            <div class="rounded-xl border border-red-200 bg-red-50 p-4">
+              <p class="text-xs font-semibold uppercase tracking-wide text-red-700">No encontrados</p>
+              <p class="text-3xl font-bold text-red-900 mt-2">{{ summary().missing }}</p>
+            </div>
+            <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">Incidencias</p>
+              <p class="text-3xl font-bold text-amber-900 mt-2">{{ summary().incidents }}</p>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-red-200 bg-white overflow-hidden">
+            <div class="px-4 py-3 border-b border-red-100 bg-red-50">
+              <h3 class="font-semibold text-red-900">Miembros del equipo no encontrados (prioritario)</h3>
+              <p class="text-sm text-red-700 mt-1">Personas del equipo de evacuación que no aparecen en el snapshot de accesos.</p>
+            </div>
+            <div class="overflow-auto max-h-80">
+              <table class="min-w-full text-sm">
+                <thead class="bg-white sticky top-0">
+                  <tr class="text-left text-slate-600 border-b border-slate-200">
+                    <th class="px-4 py-3">Nº empleado</th>
+                    <th class="px-4 py-3">Nombre</th>
+                    <th class="px-4 py-3">Rol emergencias</th>
+                    <th class="px-4 py-3">Email</th>
+                    <th class="px-4 py-3">Teléfono</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of missingRows(); track row.employeeNumber + row.fullName) {
+                    <tr class="border-b border-slate-100">
+                      <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
+                      <td class="px-4 py-3">{{ row.fullName || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.emergencyRole || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.email || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.phone || '-' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="5" class="px-4 py-6 text-center text-slate-500">
+                        No hay miembros pendientes. Todos aparecen en el snapshot de accesos.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
+              <h3 class="font-semibold text-slate-900">Miembros encontrados en accesos</h3>
+            </div>
+            <div class="overflow-auto max-h-80">
+              <table class="min-w-full text-sm">
+                <thead class="bg-white sticky top-0">
+                  <tr class="text-left text-slate-600 border-b border-slate-200">
+                    <th class="px-4 py-3">Nº empleado</th>
+                    <th class="px-4 py-3">Nombre equipo</th>
+                    <th class="px-4 py-3">Rol</th>
+                    <th class="px-4 py-3">Nombre accesos</th>
+                    <th class="px-4 py-3">Empresa</th>
+                    <th class="px-4 py-3">Último acceso</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of foundRows(); track row.employeeNumber + row.lastAccess) {
+                    <tr class="border-b border-slate-100">
+                      <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
+                      <td class="px-4 py-3">{{ row.fullName || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.emergencyRole || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.accessFullName || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.company || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.lastAccess || '-' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="6" class="px-4 py-6 text-center text-slate-500">
+                        Todavía no hay coincidencias.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="rounded-xl border border-amber-200 bg-white overflow-hidden">
+              <div class="px-4 py-3 border-b border-amber-100 bg-amber-50">
+                <h3 class="font-semibold text-amber-900">Duplicados (equipo de evacuación)</h3>
+              </div>
+              <div class="overflow-auto max-h-64">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-white sticky top-0">
+                    <tr class="text-left text-slate-600 border-b border-slate-200">
+                      <th class="px-4 py-3">Nº empleado</th>
+                      <th class="px-4 py-3">Veces</th>
+                      <th class="px-4 py-3">Filas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (row of duplicateTeamRows(); track row.employeeNumber) {
+                      <tr class="border-b border-slate-100">
+                        <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
+                        <td class="px-4 py-3">{{ row.count }}</td>
+                        <td class="px-4 py-3">{{ row.rowNumbers.join(', ') }}</td>
+                      </tr>
+                    } @empty {
+                      <tr><td colspan="3" class="px-4 py-6 text-center text-slate-500">Sin duplicados detectados.</td></tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-amber-200 bg-white overflow-hidden">
+              <div class="px-4 py-3 border-b border-amber-100 bg-amber-50">
+                <h3 class="font-semibold text-amber-900">Duplicados (accesos)</h3>
+              </div>
+              <div class="overflow-auto max-h-64">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-white sticky top-0">
+                    <tr class="text-left text-slate-600 border-b border-slate-200">
+                      <th class="px-4 py-3">Nº empleado</th>
+                      <th class="px-4 py-3">Veces</th>
+                      <th class="px-4 py-3">Filas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (row of duplicateAccessRows(); track row.employeeNumber) {
+                      <tr class="border-b border-slate-100">
+                        <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
+                        <td class="px-4 py-3">{{ row.count }}</td>
+                        <td class="px-4 py-3">{{ row.rowNumbers.join(', ') }}</td>
+                      </tr>
+                    } @empty {
+                      <tr><td colspan="3" class="px-4 py-6 text-center text-slate-500">Sin duplicados detectados.</td></tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
+              <h3 class="font-semibold text-slate-900">Errores de datos</h3>
+              <p class="text-sm text-slate-600 mt-1">Filas que no se pudieron usar en el cruce (por ejemplo, sin Nº empleado).</p>
+            </div>
+            <div class="overflow-auto max-h-64">
+              <table class="min-w-full text-sm">
+                <thead class="bg-white sticky top-0">
+                  <tr class="text-left text-slate-600 border-b border-slate-200">
+                    <th class="px-4 py-3">Origen</th>
+                    <th class="px-4 py-3">Fila</th>
+                    <th class="px-4 py-3">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of invalidRows(); track row.source + '-' + row.rowNumber + '-' + row.reason) {
+                    <tr class="border-b border-slate-100">
+                      <td class="px-4 py-3">{{ row.source === 'team' ? 'Equipo evacuación' : 'Accesos' }}</td>
+                      <td class="px-4 py-3">{{ row.rowNumber }}</td>
+                      <td class="px-4 py-3">{{ row.reason }}</td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="3" class="px-4 py-6 text-center text-slate-500">Sin errores de datos detectados.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

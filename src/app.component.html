@@ -1,8 +1,29 @@
 
 <div class="h-screen w-screen text-text_main">
-  @if (isSessionActive()) {
-    <app-event-view></app-event-view>
-  } @else {
-    <app-start-screen></app-start-screen>
+  @switch (mode()) {
+    @case ('mode_selector') {
+      <app-mode-selector
+        (nfcSelected)="openNfcMode()"
+        (evacuationSelected)="openEvacuationMode()"
+      ></app-mode-selector>
+    }
+    @case ('evacuation') {
+      <app-evacuation-mode (backRequested)="returnToModeSelector()"></app-evacuation-mode>
+    }
+    @case ('nfc') {
+      @if (isSessionActive()) {
+        <app-event-view></app-event-view>
+      } @else {
+        <div class="relative h-full w-full">
+          <button
+            (click)="returnToModeSelector()"
+            class="absolute top-4 left-4 z-10 px-4 py-2 rounded-lg bg-white text-gray-700 border border-gray-300 shadow-sm hover:bg-gray-50 transition-colors"
+          >
+            Volver
+          </button>
+          <app-start-screen></app-start-screen>
+        </div>
+      }
+    }
   }
 </div>
