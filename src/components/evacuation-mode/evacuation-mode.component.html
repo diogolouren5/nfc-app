@@ -161,9 +161,47 @@
             </div>
           </div>
 
+          <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
+              <h3 class="font-semibold text-slate-900">Miembros encontrados en accesos</h3>
+            </div>
+            <div class="overflow-auto max-h-80">
+              <table class="min-w-full text-sm">
+                <thead class="bg-white sticky top-0">
+                  <tr class="text-left text-slate-600 border-b border-slate-200">
+                    <th class="px-4 py-3">Nº empleado</th>
+                    <th class="px-4 py-3">Nombre equipo</th>
+                    <th class="px-4 py-3">Rol</th>
+                    <th class="px-4 py-3">Nombre accesos</th>
+                    <th class="px-4 py-3">Email</th>
+                    <th class="px-4 py-3">Teléfono</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of foundRows(); track row.employeeNumber + row.lastAccess) {
+                    <tr class="border-b border-slate-100">
+                      <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
+                      <td class="px-4 py-3">{{ row.fullName || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.emergencyRole || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.accessFullName || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.email || '-' }}</td>
+                      <td class="px-4 py-3">{{ row.phone || '-' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="6" class="px-4 py-6 text-center text-slate-500">
+                        Todavía no hay coincidencias.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="rounded-xl border border-red-200 bg-white overflow-hidden">
             <div class="px-4 py-3 border-b border-red-100 bg-red-50">
-              <h3 class="font-semibold text-red-900">Miembros del equipo no encontrados (prioritario)</h3>
+              <h3 class="font-semibold text-red-900">Miembros del equipo no encontrados</h3>
               <p class="text-sm text-red-700 mt-1">Personas del equipo de evacuación que no aparecen en el snapshot de accesos.</p>
             </div>
             <div class="overflow-auto max-h-80">
@@ -190,44 +228,6 @@
                     <tr>
                       <td colspan="5" class="px-4 py-6 text-center text-slate-500">
                         No hay miembros pendientes. Todos aparecen en el snapshot de accesos.
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h3 class="font-semibold text-slate-900">Miembros encontrados en accesos</h3>
-            </div>
-            <div class="overflow-auto max-h-80">
-              <table class="min-w-full text-sm">
-                <thead class="bg-white sticky top-0">
-                  <tr class="text-left text-slate-600 border-b border-slate-200">
-                    <th class="px-4 py-3">Nº empleado</th>
-                    <th class="px-4 py-3">Nombre equipo</th>
-                    <th class="px-4 py-3">Rol</th>
-                    <th class="px-4 py-3">Nombre accesos</th>
-                    <th class="px-4 py-3">Empresa</th>
-                    <th class="px-4 py-3">Último acceso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (row of foundRows(); track row.employeeNumber + row.lastAccess) {
-                    <tr class="border-b border-slate-100">
-                      <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
-                      <td class="px-4 py-3">{{ row.fullName || '-' }}</td>
-                      <td class="px-4 py-3">{{ row.emergencyRole || '-' }}</td>
-                      <td class="px-4 py-3">{{ row.accessFullName || '-' }}</td>
-                      <td class="px-4 py-3">{{ row.company || '-' }}</td>
-                      <td class="px-4 py-3">{{ row.lastAccess || '-' }}</td>
-                    </tr>
-                  } @empty {
-                    <tr>
-                      <td colspan="6" class="px-4 py-6 text-center text-slate-500">
-                        Todavía no hay coincidencias.
                       </td>
                     </tr>
                   }
