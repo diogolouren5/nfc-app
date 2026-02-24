@@ -5,14 +5,15 @@ import { StartScreenComponent } from './components/start-screen/start-screen.com
 import { EventViewComponent } from './components/event-view/event-view.component';
 import { ModeSelectorComponent } from './components/mode-selector/mode-selector.component';
 import { EvacuationModeComponent } from './components/evacuation-mode/evacuation-mode.component';
+import { EvacuationConfirmComponent } from './components/evacuation-confirm/evacuation-confirm.component';
 
-type AppMode = 'mode_selector' | 'nfc' | 'evacuation';
+type AppMode = 'mode_selector' | 'nfc' | 'evacuation' | 'evacuation_confirm';
 
 @Component({
   selector: 'app-root',
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [StartScreenComponent, EventViewComponent, ModeSelectorComponent, EvacuationModeComponent]
+  imports: [StartScreenComponent, EventViewComponent, ModeSelectorComponent, EvacuationModeComponent, EvacuationConfirmComponent]
 })
 export class AppComponent {
   sessionService = inject(SessionService);
@@ -25,6 +26,10 @@ export class AppComponent {
 
   openEvacuationMode(): void {
     this.mode.set('evacuation');
+  }
+
+  openEvacuationConfirmMode(): void {
+    this.mode.set('evacuation_confirm');
   }
 
   returnToModeSelector(): void {

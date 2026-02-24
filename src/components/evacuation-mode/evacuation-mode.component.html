@@ -1,4 +1,4 @@
-<div class="h-full w-full bg-slate-100 px-4 py-6 sm:px-6">
+﻿<div class="h-full w-full bg-slate-100 px-4 py-6 sm:px-6">
   <div class="w-full max-w-7xl mx-auto">
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8">
       <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
@@ -52,7 +52,7 @@
 
         <div class="rounded-xl border border-slate-200 bg-slate-50 p-5">
           <h3 class="text-lg font-semibold text-slate-900 mb-2">2. Snapshot de accesos</h3>
-          <p class="text-sm text-slate-600 mb-4">Excel diario de personas presentes con Nº empleado y último acceso.</p>
+          <p class="text-sm text-slate-600 mb-4">Excel diario de personas presentes con Nº empleado y ?ltimo acceso.</p>
           <input
             type="file"
             accept=".xlsx,.xls"
@@ -102,12 +102,43 @@
         >
           Exportar resultado a Excel
         </button>
+
+        <button
+          (click)="createEvacuationSession()"
+          [disabled]="!canCreateEvacuationSession()"
+          class="px-5 py-3 rounded-lg font-semibold border transition-colors disabled:text-slate-400 disabled:border-slate-200 disabled:bg-slate-100 disabled:cursor-not-allowed border-red-300 text-red-800 bg-red-50 hover:bg-red-100"
+        >
+          @if (isCreatingEvacuationSession()) {
+            Creando sesión...
+          } @else if (evacuationSessionId()) {
+            Nueva sesión de evacuación
+          } @else {
+            Crear sesión de evacuación
+          }
+        </button>
+
+        @if (evacuationSessionId()) {
+          <button
+            (click)="refreshEvacuationSession()"
+            [disabled]="syncingEvacuationSession()"
+            class="px-5 py-3 rounded-lg font-semibold border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-60"
+          >
+            @if (syncingEvacuationSession()) { Sincronizando... } @else { Sincronizar sesión }
+          </button>
+        }
       </div>
 
       @if (processingError()) {
         <div class="mb-6 rounded-xl border border-red-200 bg-red-50 text-red-900 px-4 py-3">
           <div class="font-semibold">Error de procesamiento</div>
           <div class="text-sm mt-1">{{ processingError() }}</div>
+        </div>
+      }
+
+      @if (sessionActionError()) {
+        <div class="mb-6 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3">
+          <div class="font-semibold">Sesión de evacuación</div>
+          <div class="text-sm mt-1">{{ sessionActionError() }}</div>
         </div>
       }
 
@@ -161,41 +192,117 @@
             </div>
           </div>
 
-          <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
-              <h3 class="font-semibold text-slate-900">Miembros encontrados en accesos</h3>
+          <div class="rounded-2xl border border-red-200 bg-gradient-to-r from-red-50 via-white to-emerald-50 p-4 sm:p-5">
+            <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-red-700">Control de confirmación de emergencia</p>
+                @if (evacuationSessionId()) {
+                  <p class="text-sm text-slate-700 mt-1">
+                    Sesión activa:
+                    <span class="font-mono font-semibold">{{ evacuationSessionId() }}</span>
+                  </p>
+                } @else {
+                  <p class="text-sm text-slate-600 mt-1">Crea una sesión para registrar confirmaciones en tiempo real.</p>
+                }
+              </div>
+              <button
+                type="button"
+                (click)="toggleOnlyPendingAcks()"
+                class="px-4 py-2 rounded-lg text-sm font-semibold border"
+                [class.bg-red-100]="showOnlyPendingAcks()"
+                [class.text-red-800]="showOnlyPendingAcks()"
+                [class.border-red-300]="showOnlyPendingAcks()"
+                [class.bg-white]="!showOnlyPendingAcks()"
+                [class.text-slate-700]="!showOnlyPendingAcks()"
+                [class.border-slate-300]="!showOnlyPendingAcks()"
+              >
+                @if (showOnlyPendingAcks()) { Mostrando solo pendientes } @else { Filtrar: solo pendientes }
+              </button>
             </div>
-            <div class="overflow-auto max-h-80">
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+              <div class="rounded-xl border border-slate-200 bg-white p-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Pendientes</div>
+                <div class="text-2xl font-bold text-red-700 mt-1">{{ evacuationSessionId() ? pendingAckCount() : foundRows().length }}</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 bg-white p-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Confirmados</div>
+                <div class="text-2xl font-bold text-emerald-700 mt-1">{{ evacuationSessionId() ? acknowledgedCount() : 0 }}</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 bg-white p-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500 font-semibold">% confirmación</div>
+                <div class="text-2xl font-bold text-slate-900 mt-1">{{ evacuationSessionId() ? ackPercent() : 0 }}%</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-slate-300 bg-white overflow-hidden shadow-sm">
+            <div class="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-800 text-white">
+              <h3 class="font-semibold">Miembros encontrados en accesos</h3>
+              <p class="text-xs text-slate-200 mt-1">Tabla operativa para confirmar recepción del aviso.</p>
+            </div>
+            <div class="overflow-auto max-h-96">
               <table class="min-w-full text-sm">
-                <thead class="bg-white sticky top-0">
-                  <tr class="text-left text-slate-600 border-b border-slate-200">
+                <thead class="bg-slate-50 sticky top-0">
+                  <tr class="text-left text-slate-700 border-b border-slate-200">
                     <th class="px-4 py-3">Nº empleado</th>
+                    <th class="px-4 py-3">Estado</th>
+                    <th class="px-4 py-3">Acción</th>
                     <th class="px-4 py-3">Nombre equipo</th>
                     <th class="px-4 py-3">Rol</th>
-                    <th class="px-4 py-3">Nombre accesos</th>
                     <th class="px-4 py-3">Área</th>
                     <th class="px-4 py-3">Subárea</th>
                     <th class="px-4 py-3">Departamento</th>
                     <th class="px-4 py-3">Email</th>
                     <th class="px-4 py-3">Teléfono</th>
+                    <th class="px-4 py-3">Confirmado a las</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of foundRows(); track row.employeeNumber + row.lastAccess) {
-                    <tr class="border-b border-slate-100">
+                  @for (row of displayedFoundRows(); track row.employeeNumber + row.lastAccess) {
+                    <tr class="border-b border-slate-100" [ngClass]="getAckRowClass(row.employeeNumber)">
                       <td class="px-4 py-3 font-mono">{{ row.employeeNumber }}</td>
+                      <td class="px-4 py-3">
+                        <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" [ngClass]="getAckBadgeClass(row.employeeNumber)">
+                          {{ getAckStatusLabel(row.employeeNumber) }}
+                        </span>
+                      </td>
+                      <td class="px-4 py-3">
+                        <button
+                          type="button"
+                          (click)="acknowledgeMember(row.employeeNumber, !isAcknowledged(row.employeeNumber))"
+                          [disabled]="!evacuationSessionId() || ackPendingEmployee() === row.employeeNumber"
+                          class="px-3 py-2 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          [class.border-emerald-300]="!isAcknowledged(row.employeeNumber)"
+                          [class.bg-emerald-50]="!isAcknowledged(row.employeeNumber)"
+                          [class.text-emerald-800]="!isAcknowledged(row.employeeNumber)"
+                          [class.border-slate-300]="isAcknowledged(row.employeeNumber)"
+                          [class.bg-slate-100]="isAcknowledged(row.employeeNumber)"
+                          [class.text-slate-700]="isAcknowledged(row.employeeNumber)"
+                        >
+                          @if (ackPendingEmployee() === row.employeeNumber) {
+                            Guardando...
+                          } @else if (!evacuationSessionId()) {
+                            Crear sesión
+                          } @else if (isAcknowledged(row.employeeNumber)) {
+                            Marcar pendiente
+                          } @else {
+                            Confirmar
+                          }
+                        </button>
+                      </td>
                       <td class="px-4 py-3">{{ row.fullName || '-' }}</td>
                       <td class="px-4 py-3">{{ row.emergencyRole || '-' }}</td>
-                      <td class="px-4 py-3">{{ row.accessFullName || '-' }}</td>
                       <td class="px-4 py-3">{{ row.area || '-' }}</td>
                       <td class="px-4 py-3">{{ row.subArea || '-' }}</td>
                       <td class="px-4 py-3">{{ row.department || '-' }}</td>
                       <td class="px-4 py-3">{{ row.email || '-' }}</td>
                       <td class="px-4 py-3">{{ row.phone || '-' }}</td>
+                      <td class="px-4 py-3 text-xs text-slate-600">{{ getAckTimeText(row.employeeNumber) || '-' }}</td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td colspan="9" class="px-4 py-6 text-center text-slate-500">
+                      <td colspan="11" class="px-4 py-6 text-center text-slate-500">
                         Todavía no hay coincidencias.
                       </td>
                     </tr>
@@ -333,3 +440,4 @@
     </div>
   </div>
 </div>
+

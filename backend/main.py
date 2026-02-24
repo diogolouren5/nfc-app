@@ -1,6 +1,9 @@
 import os
 import time
 import threading
+import sqlite3
+import json
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -45,6 +48,8 @@ stations_lock = threading.Lock()
 stations: dict[str, dict[str, Any]] = {}
 station_events: dict[str, list[dict[str, Any]]] = {}
 global_event_id = 0
+evacuation_db_lock = threading.Lock()
+EVAC_DB_PATH = os.path.join(os.path.dirname(__file__), "evacuation_sessions.db")
 
 
 class ReaderHeartbeatIn(BaseModel):
@@ -59,6 +64,38 @@ class ReaderEventIn(BaseModel):
     station_id: str = Field(min_length=1, max_length=120)
     uid: str = Field(min_length=1, max_length=120)
     timestamp: str | None = None
+
+
+class EvacuationMemberIn(BaseModel):
+    employee_number: str = Field(min_length=1, max_length=120)
+    full_name: str = ""
+    emergency_role: str = ""
+    access_full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    area: str = ""
+    sub_area: str = ""
+    department: str = ""
+
+
+class EvacuationSessionCreateIn(BaseModel):
+    members: list[EvacuationMemberIn]
+    metadata: dict[str, Any] | None = None
+
+
+class EvacuationAcknowledgeIn(BaseModel):
+    employee_number: str = Field(min_length=1, max_length=120)
+    acknowledged: bool = True
+    ack_source: str | None = "operator"
+
+
+class EvacuationBulkAcknowledgeIn(BaseModel):
+    employee_numbers: list[str] = Field(default_factory=list)
+    ack_source: str | None = "operator"
+
+
+class EvacuationMemberConfirmIn(BaseModel):
+    employee_number: str = Field(min_length=1, max_length=120)
 
 # -------------------------------------------------
 # UTILS
@@ -102,6 +139,149 @@ def normalize_station_id(station_id: str) -> str:
     if LOCAL_ONLY_MODE:
         return LOCAL_STATION_ID
     return station
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def get_db_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(EVAC_DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_evacuation_db() -> None:
+    with evacuation_db_lock:
+        conn = get_db_conn()
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS evacuation_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS evacuation_session_members (
+                    session_id TEXT NOT NULL,
+                    employee_number TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    emergency_role TEXT NOT NULL,
+                    access_full_name TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    area TEXT NOT NULL,
+                    sub_area TEXT NOT NULL,
+                    department TEXT NOT NULL,
+                    ack_status TEXT NOT NULL,
+                    ack_at TEXT,
+                    ack_source TEXT,
+                    PRIMARY KEY (session_id, employee_number),
+                    FOREIGN KEY (session_id) REFERENCES evacuation_sessions(session_id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def serialize_evacuation_session(session_id: str) -> dict[str, Any]:
+    conn = get_db_conn()
+    try:
+        session = conn.execute(
+            "SELECT session_id, status, created_at, updated_at, metadata_json FROM evacuation_sessions WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if not session:
+            raise HTTPException(status_code=404, detail="Evacuation session not found")
+
+        members_rows = conn.execute(
+            """
+            SELECT employee_number, full_name, emergency_role, access_full_name, email, phone, area, sub_area, department,
+                   ack_status, ack_at, ack_source
+            FROM evacuation_session_members
+            WHERE session_id = ?
+            ORDER BY employee_number
+            """,
+            (session_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    members = [dict(r) for r in members_rows]
+    ack_count = sum(1 for m in members if m["ack_status"] == "acknowledged")
+    total_count = len(members)
+    pending_count = max(0, total_count - ack_count)
+    try:
+        metadata = json.loads(session["metadata_json"] or "{}")
+    except json.JSONDecodeError:
+        metadata = {}
+
+    return {
+        "session_id": session["session_id"],
+        "status": session["status"],
+        "created_at": session["created_at"],
+        "updated_at": session["updated_at"],
+        "metadata": metadata,
+        "summary": {
+            "total": total_count,
+            "acknowledged": ack_count,
+            "pending": pending_count,
+            "ack_percent": round((ack_count / total_count) * 100, 1) if total_count else 0,
+        },
+        "members": members,
+    }
+
+
+def set_evacuation_member_ack(
+    session_id: str,
+    employee_number: str,
+    acknowledged: bool,
+    ack_source: str | None,
+) -> dict[str, Any]:
+    now_iso = utc_now_iso()
+    ack_status = "acknowledged" if acknowledged else "pending"
+    ack_at = now_iso if acknowledged else None
+    ack_source_value = (ack_source or "operator").strip()[:120]
+
+    with evacuation_db_lock:
+        conn = get_db_conn()
+        try:
+            cur = conn.execute(
+                """
+                UPDATE evacuation_session_members
+                SET ack_status = ?, ack_at = ?, ack_source = ?
+                WHERE session_id = ? AND employee_number = ?
+                """,
+                (
+                    ack_status,
+                    ack_at,
+                    ack_source_value if acknowledged else None,
+                    session_id,
+                    employee_number.strip(),
+                ),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Member not found in session")
+
+            cur2 = conn.execute(
+                "UPDATE evacuation_sessions SET updated_at = ? WHERE session_id = ?",
+                (now_iso, session_id),
+            )
+            if cur2.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Evacuation session not found")
+            conn.commit()
+        finally:
+            conn.close()
+
+    return serialize_evacuation_session(session_id)
 
 
 # -------------------------------------------------
@@ -275,6 +455,160 @@ def agent_download_info():
     }
 
 
+@app.post("/api/evacuation-sessions")
+def create_evacuation_session(payload: EvacuationSessionCreateIn, request: Request):
+    update_activity()
+    require_shared_token_if_configured(request)
+
+    if not payload.members:
+        raise HTTPException(status_code=400, detail="members cannot be empty")
+
+    session_id = f"evac-{uuid.uuid4().hex[:10]}"
+    now_iso = utc_now_iso()
+    metadata_json = json.dumps(payload.metadata or {}, ensure_ascii=False)
+
+    unique_members: dict[str, EvacuationMemberIn] = {}
+    for member in payload.members:
+        emp = member.employee_number.strip()
+        if not emp or emp in unique_members:
+            continue
+        unique_members[emp] = member
+
+    with evacuation_db_lock:
+        conn = get_db_conn()
+        try:
+            # Mantener una única sesión abierta simplifica el flujo de "sesión activa" para miembros.
+            conn.execute(
+                "UPDATE evacuation_sessions SET status = 'closed', updated_at = ? WHERE status = 'open'",
+                (now_iso,),
+            )
+            conn.execute(
+                """
+                INSERT INTO evacuation_sessions (session_id, status, created_at, updated_at, metadata_json)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (session_id, "open", now_iso, now_iso, metadata_json),
+            )
+            conn.executemany(
+                """
+                INSERT INTO evacuation_session_members (
+                    session_id, employee_number, full_name, emergency_role, access_full_name, email, phone,
+                    area, sub_area, department, ack_status, ack_at, ack_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        session_id,
+                        emp,
+                        m.full_name or "",
+                        m.emergency_role or "",
+                        m.access_full_name or "",
+                        m.email or "",
+                        m.phone or "",
+                        m.area or "",
+                        m.sub_area or "",
+                        m.department or "",
+                        "pending",
+                        None,
+                        None,
+                    )
+                    for emp, m in unique_members.items()
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return serialize_evacuation_session(session_id)
+
+
+@app.get("/api/evacuation-sessions/active")
+def get_active_evacuation_session():
+    update_activity()
+    conn = get_db_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT session_id
+            FROM evacuation_sessions
+            WHERE status = 'open'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="No active evacuation session")
+
+    return serialize_evacuation_session(row["session_id"])
+
+
+@app.get("/api/evacuation-sessions/{session_id}")
+def get_evacuation_session(session_id: str):
+    update_activity()
+    return serialize_evacuation_session(session_id)
+
+
+@app.post("/api/evacuation-sessions/{session_id}/acknowledge")
+def acknowledge_evacuation_member(session_id: str, payload: EvacuationAcknowledgeIn, request: Request):
+    update_activity()
+    require_shared_token_if_configured(request)
+    return set_evacuation_member_ack(
+        session_id=session_id,
+        employee_number=payload.employee_number,
+        acknowledged=payload.acknowledged,
+        ack_source=payload.ack_source or "operator",
+    )
+
+
+@app.post("/api/evacuation-sessions/{session_id}/member-confirm")
+def member_confirm_evacuation(session_id: str, payload: EvacuationMemberConfirmIn):
+    update_activity()
+    # Endpoint pensado para miembros del equipo en un dispositivo distinto (sin token en MVP).
+    return set_evacuation_member_ack(
+        session_id=session_id,
+        employee_number=payload.employee_number,
+        acknowledged=True,
+        ack_source="member",
+    )
+
+
+@app.post("/api/evacuation-sessions/{session_id}/acknowledge-bulk")
+def acknowledge_evacuation_bulk(session_id: str, payload: EvacuationBulkAcknowledgeIn, request: Request):
+    update_activity()
+    require_shared_token_if_configured(request)
+    numbers = [n.strip() for n in payload.employee_numbers if n and n.strip()]
+    if not numbers:
+        raise HTTPException(status_code=400, detail="employee_numbers cannot be empty")
+
+    now_iso = utc_now_iso()
+    ack_source = (payload.ack_source or "operator").strip()[:120]
+    placeholders = ",".join("?" for _ in numbers)
+
+    with evacuation_db_lock:
+        conn = get_db_conn()
+        try:
+            conn.execute(
+                f"""
+                UPDATE evacuation_session_members
+                SET ack_status = 'acknowledged', ack_at = ?, ack_source = ?
+                WHERE session_id = ? AND employee_number IN ({placeholders})
+                """,
+                (now_iso, ack_source, session_id, *numbers),
+            )
+            conn.execute(
+                "UPDATE evacuation_sessions SET updated_at = ? WHERE session_id = ?",
+                (now_iso, session_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return serialize_evacuation_session(session_id)
+
+
 @app.post("/shutdown")
 def shutdown(request: Request):
     """
@@ -308,6 +642,7 @@ def inactivity_monitor():
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
+init_evacuation_db()
 
 # -------------------------------------------------
 # ENTRY POINT

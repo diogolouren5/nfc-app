@@ -10,6 +10,7 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 export class ModeSelectorComponent {
   nfcSelected = output<void>();
   evacuationSelected = output<void>();
+  evacuationConfirmSelected = output<void>();
 
   selectNfcMode(): void {
     this.nfcSelected.emit();
@@ -17,5 +18,9 @@ export class ModeSelectorComponent {
 
   selectEvacuationMode(): void {
     this.evacuationSelected.emit();
+  }
+
+  selectEvacuationConfirmMode(): void {
+    this.evacuationConfirmSelected.emit();
   }
 }

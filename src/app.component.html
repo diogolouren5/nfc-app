@@ -5,10 +5,14 @@
       <app-mode-selector
         (nfcSelected)="openNfcMode()"
         (evacuationSelected)="openEvacuationMode()"
+        (evacuationConfirmSelected)="openEvacuationConfirmMode()"
       ></app-mode-selector>
     }
     @case ('evacuation') {
       <app-evacuation-mode (backRequested)="returnToModeSelector()"></app-evacuation-mode>
+    }
+    @case ('evacuation_confirm') {
+      <app-evacuation-confirm (backRequested)="returnToModeSelector()"></app-evacuation-confirm>
     }
     @case ('nfc') {
       @if (isSessionActive()) {

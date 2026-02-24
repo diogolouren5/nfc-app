@@ -1,5 +1,5 @@
 ﻿import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, output, signal } from '@angular/core';
 
 declare const XLSX: any;
 
@@ -100,13 +100,40 @@ interface WorkbookSheetRows {
   rows: string[][];
 }
 
+interface EvacuationSessionMemberApi {
+  employee_number: string;
+  ack_status: 'pending' | 'acknowledged';
+  ack_at: string | null;
+  ack_source: string | null;
+}
+
+interface EvacuationSessionApi {
+  session_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  summary: {
+    total: number;
+    acknowledged: number;
+    pending: number;
+    ack_percent: number;
+  };
+  members: EvacuationSessionMemberApi[];
+}
+
+interface AckState {
+  status: 'pending' | 'acknowledged';
+  ackAt: string;
+  ackSource: string;
+}
+
 @Component({
   selector: 'app-evacuation-mode',
   templateUrl: './evacuation-mode.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule],
 })
-export class EvacuationModeComponent {
+export class EvacuationModeComponent implements OnDestroy {
   backRequested = output<void>();
 
   teamFile = signal<File | null>(null);
@@ -124,6 +151,16 @@ export class EvacuationModeComponent {
   duplicateTeamRows = signal<DuplicateGroup[]>([]);
   duplicateAccessRows = signal<DuplicateGroup[]>([]);
   invalidRows = signal<InvalidRow[]>([]);
+  evacuationSessionId = signal('');
+  evacuationSessionSummary = signal<EvacuationSessionApi['summary'] | null>(null);
+  evacuationAckMap = signal<Record<string, AckState>>({});
+  sessionActionError = signal('');
+  isCreatingEvacuationSession = signal(false);
+  syncingEvacuationSession = signal(false);
+  ackPendingEmployee = signal('');
+  showOnlyPendingAcks = signal(false);
+
+  private sessionPollTimer: number | null = null;
 
   summary = signal<ProcessSummary>({
     totalTeam: 0,
@@ -133,17 +170,34 @@ export class EvacuationModeComponent {
   });
 
   canAnalyze = computed(() => !!this.teamFile() && !!this.accessFile() && !this.isProcessing());
+  canCreateEvacuationSession = computed(
+    () => this.hasResults() && this.foundRows().length > 0 && !this.isCreatingEvacuationSession()
+  );
+  acknowledgedCount = computed(() => this.evacuationSessionSummary()?.acknowledged ?? 0);
+  pendingAckCount = computed(() => this.evacuationSessionSummary()?.pending ?? 0);
+  ackPercent = computed(() => this.evacuationSessionSummary()?.ack_percent ?? 0);
+  displayedFoundRows = computed(() => {
+    const onlyPending = this.showOnlyPendingAcks();
+    const ackMap = this.evacuationAckMap();
+    const rows = [...this.foundRows()].sort((a, b) => {
+      const aAck = ackMap[a.employeeNumber]?.status === 'acknowledged' ? 1 : 0;
+      const bAck = ackMap[b.employeeNumber]?.status === 'acknowledged' ? 1 : 0;
+      if (aAck !== bAck) return aAck - bAck;
+      return a.fullName.localeCompare(b.fullName, 'es');
+    });
+    return onlyPending ? rows.filter((r) => (ackMap[r.employeeNumber]?.status ?? 'pending') !== 'acknowledged') : rows;
+  });
 
   previewTeamColumns = computed(() => {
     const map = this.teamColumnMap();
     if (!map) return [];
     return [
-      this.formatMapping('NÂº empleado', map.employeeNumber),
+      this.formatMapping('Nº empleado', map.employeeNumber),
       this.formatMapping('Nombre', map.firstName),
       this.formatMapping('Apellido 1', map.firstSurname),
       this.formatMapping('Apellido 2', map.secondSurname),
       this.formatMapping('Email', map.email),
-      this.formatMapping('TelÃ©fono', map.phone),
+      this.formatMapping('Teléfono', map.phone),
       this.formatMapping('Area', map.area),
       this.formatMapping('Subarea', map.subArea),
       this.formatMapping('Departamento', map.department),
@@ -155,11 +209,11 @@ export class EvacuationModeComponent {
     const map = this.accessColumnMap();
     if (!map) return [];
     return [
-      this.formatMapping('NÂº empleado', map.employeeNumber),
+      this.formatMapping('Nº empleado', map.employeeNumber),
       this.formatMapping('Nombre', map.firstName),
       this.formatMapping('Apellido', map.surname),
       this.formatMapping('Empresa', map.company),
-      this.formatMapping('Ãšltimo acceso', map.lastAccess),
+      this.formatMapping('Último acceso', map.lastAccess),
     ];
   });
 
@@ -203,10 +257,10 @@ export class EvacuationModeComponent {
       this.accessMetadata.set(this.extractAccessMetadata(accessRows, accessMap.headerRowIndex));
 
       const missingMappings: string[] = [];
-      if (teamMap.employeeNumber === null) missingMappings.push('Equipo: NÂº empleado');
+      if (teamMap.employeeNumber === null) missingMappings.push('Equipo: Nº empleado');
       if (teamMap.emergencyRole === null) missingMappings.push('Equipo: Rol Emergencias');
-      if (accessMap.employeeNumber === null) missingMappings.push('Accesos: NÂº empleado');
-      if (accessMap.lastAccess === null) missingMappings.push('Accesos: Ãšltimo acceso');
+      if (accessMap.employeeNumber === null) missingMappings.push('Accesos: Nº empleado');
+      if (accessMap.lastAccess === null) missingMappings.push('Accesos: Último acceso');
 
       if (missingMappings.length > 0) {
         throw new Error(`No se pudieron detectar columnas obligatorias: ${missingMappings.join(', ')}`);
@@ -281,41 +335,41 @@ export class EvacuationModeComponent {
     const summary = this.summary();
     const metadata = this.accessMetadata();
     const duplicates = [
-      ...this.duplicateTeamRows().map((d) => ({ origen: 'Equipo evacuaciÃ³n', ...d })),
+      ...this.duplicateTeamRows().map((d) => ({ origen: 'Equipo evacuación', ...d })),
       ...this.duplicateAccessRows().map((d) => ({ origen: 'Accesos', ...d })),
     ];
 
     const wb = XLSX.utils.book_new();
 
     const summarySheet = XLSX.utils.aoa_to_sheet([
-      ['Resumen evacuaciÃ³n'],
+      ['Resumen evacuación'],
       [],
-      ['Fecha de exportaciÃ³n', new Date().toLocaleString()],
-      ['Total equipo evacuaciÃ³n', summary.totalTeam],
+      ['Fecha de exportación', new Date().toLocaleString()],
+      ['Total equipo evacuación', summary.totalTeam],
       ['Encontrados en accesos', summary.found],
       ['No encontrados', summary.missing],
       ['Incidencias', summary.incidents],
       [],
       ['Metadata informe accesos'],
-      ['TÃ­tulo informe', metadata?.reportTitle ?? ''],
+      ['Título informe', metadata?.reportTitle ?? ''],
       ['Usuario', metadata?.user ?? ''],
       ['Fecha informe', metadata?.reportDate ?? ''],
       ['Resultados consulta', metadata?.resultCount ?? ''],
-      ['Ãrea', metadata?.area ?? ''],
+      ['Área', metadata?.area ?? ''],
     ]);
     XLSX.utils.book_append_sheet(wb, summarySheet, 'Resumen');
 
     const missingSheet = XLSX.utils.json_to_sheet(this.missingRows().map((r) => ({
-      'NÂº empleado': r.employeeNumber,
+      'Nº empleado': r.employeeNumber,
       Nombre: r.fullName,
       'Rol emergencias': r.emergencyRole,
       Email: r.email,
-      'TelÃ©fono': r.phone,
+      'Teléfono': r.phone,
     })));
     XLSX.utils.book_append_sheet(wb, missingSheet, 'No_encontrados');
 
     const foundSheet = XLSX.utils.json_to_sheet(this.foundRows().map((r) => ({
-      'NÂº empleado': r.employeeNumber,
+      'Nº empleado': r.employeeNumber,
       Nombre: r.fullName,
       'Rol emergencias': r.emergencyRole,
       'Nombre en accesos': r.accessFullName,
@@ -323,27 +377,134 @@ export class EvacuationModeComponent {
       Subarea: r.subArea,
       Departamento: r.department,
       Email: r.email,
-      'TelÃ©fono': r.phone,
+      'Teléfono': r.phone,
     })));
     XLSX.utils.book_append_sheet(wb, foundSheet, 'Encontrados');
 
     const duplicatesSheet = XLSX.utils.json_to_sheet(duplicates.map((d) => ({
       Origen: d.origen,
-      'NÂº empleado': d.employeeNumber,
+      'Nº empleado': d.employeeNumber,
       Veces: d.count,
       Filas: d.rowNumbers.join(', '),
     })));
     XLSX.utils.book_append_sheet(wb, duplicatesSheet, 'Duplicados');
 
     const invalidSheet = XLSX.utils.json_to_sheet(this.invalidRows().map((r) => ({
-      Origen: r.source === 'team' ? 'Equipo evacuaciÃ³n' : 'Accesos',
+      Origen: r.source === 'team' ? 'Equipo evacuación' : 'Accesos',
       Fila: r.rowNumber,
       Motivo: r.reason,
     })));
     XLSX.utils.book_append_sheet(wb, invalidSheet, 'Errores_datos');
 
-    const fileName = `evacuacion_cruce_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`;
+    const fileName = `evacuación_cruce_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.xlsx`;
     XLSX.writeFile(wb, fileName);
+  }
+
+  ngOnDestroy(): void {
+    this.stopSessionPolling();
+  }
+
+  async createEvacuationSession(): Promise<void> {
+    if (!this.hasResults() || this.foundRows().length === 0) return;
+
+    this.isCreatingEvacuationSession.set(true);
+    this.sessionActionError.set('');
+    try {
+      const payload = {
+        metadata: {
+          reportTitle: this.accessMetadata()?.reportTitle ?? '',
+          reportDate: this.accessMetadata()?.reportDate ?? '',
+          user: this.accessMetadata()?.user ?? '',
+          area: this.accessMetadata()?.area ?? '',
+        },
+        members: this.foundRows().map((r) => ({
+          employee_number: r.employeeNumber,
+          full_name: r.fullName,
+          emergency_role: r.emergencyRole,
+          access_full_name: r.accessFullName,
+          email: r.email,
+          phone: r.phone,
+          area: r.area,
+          sub_area: r.subArea,
+          department: r.department,
+        })),
+      };
+
+      const session = await this.apiPost<EvacuationSessionApi>('/api/evacuation-sessions', payload);
+      this.applyEvacuationSession(session);
+      this.startSessionPolling();
+    } catch (error) {
+      this.sessionActionError.set(error instanceof Error ? error.message : 'No se pudo crear la sesión de evacuación.');
+    } finally {
+      this.isCreatingEvacuationSession.set(false);
+    }
+  }
+
+  async refreshEvacuationSession(): Promise<void> {
+    const sessionId = this.evacuationSessionId();
+    if (!sessionId) return;
+    this.syncingEvacuationSession.set(true);
+    this.sessionActionError.set('');
+    try {
+      const session = await this.apiGet<EvacuationSessionApi>(`/api/evacuation-sessions/${encodeURIComponent(sessionId)}`);
+      this.applyEvacuationSession(session);
+    } catch (error) {
+      this.sessionActionError.set(error instanceof Error ? error.message : 'No se pudo sincronizar la sesión.');
+    } finally {
+      this.syncingEvacuationSession.set(false);
+    }
+  }
+
+  async acknowledgeMember(employeeNumber: string, acknowledged = true): Promise<void> {
+    const sessionId = this.evacuationSessionId();
+    if (!sessionId) return;
+    this.ackPendingEmployee.set(employeeNumber);
+    this.sessionActionError.set('');
+    try {
+      const session = await this.apiPost<EvacuationSessionApi>(
+        `/api/evacuation-sessions/${encodeURIComponent(sessionId)}/acknowledge`,
+        {
+          employee_number: employeeNumber,
+          acknowledged,
+          ack_source: 'operator',
+        }
+      );
+      this.applyEvacuationSession(session);
+    } catch (error) {
+      this.sessionActionError.set(error instanceof Error ? error.message : 'No se pudo registrar la confirmación.');
+    } finally {
+      this.ackPendingEmployee.set('');
+    }
+  }
+
+  toggleOnlyPendingAcks(): void {
+    this.showOnlyPendingAcks.set(!this.showOnlyPendingAcks());
+  }
+
+  isAcknowledged(employeeNumber: string): boolean {
+    return this.evacuationAckMap()[employeeNumber]?.status === 'acknowledged';
+  }
+
+  getAckStatusLabel(employeeNumber: string): string {
+    return this.isAcknowledged(employeeNumber) ? 'Confirmado' : 'Pendiente';
+  }
+
+  getAckBadgeClass(employeeNumber: string): string {
+    return this.isAcknowledged(employeeNumber)
+      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+      : 'bg-amber-100 text-amber-900 border border-amber-200';
+  }
+
+  getAckRowClass(employeeNumber: string): string {
+    return this.isAcknowledged(employeeNumber) ? 'bg-emerald-50/40' : 'bg-red-50/40';
+  }
+
+  getAckTimeText(employeeNumber: string): string {
+    const ackAt = this.evacuationAckMap()[employeeNumber]?.ackAt;
+    if (!ackAt) return '';
+    const dt = new Date(ackAt);
+    if (Number.isNaN(dt.getTime())) return ackAt;
+    return dt.toLocaleTimeString();
   }
 
   goBack(): void {
@@ -351,6 +512,7 @@ export class EvacuationModeComponent {
   }
 
   private resetResults(): void {
+    this.stopSessionPolling();
     this.processingError.set('');
     this.hasResults.set(false);
     this.teamColumnMap.set(null);
@@ -361,7 +523,77 @@ export class EvacuationModeComponent {
     this.duplicateTeamRows.set([]);
     this.duplicateAccessRows.set([]);
     this.invalidRows.set([]);
+    this.evacuationSessionId.set('');
+    this.evacuationSessionSummary.set(null);
+    this.evacuationAckMap.set({});
+    this.sessionActionError.set('');
+    this.isCreatingEvacuationSession.set(false);
+    this.syncingEvacuationSession.set(false);
+    this.ackPendingEmployee.set('');
+    this.showOnlyPendingAcks.set(false);
     this.summary.set({ totalTeam: 0, found: 0, missing: 0, incidents: 0 });
+  }
+
+  private applyEvacuationSession(session: EvacuationSessionApi): void {
+    this.evacuationSessionId.set(session.session_id);
+    this.evacuationSessionSummary.set(session.summary);
+
+    const ackMap: Record<string, AckState> = {};
+    for (const member of session.members) {
+      ackMap[member.employee_number] = {
+        status: member.ack_status,
+        ackAt: member.ack_at ?? '',
+        ackSource: member.ack_source ?? '',
+      };
+    }
+    this.evacuationAckMap.set(ackMap);
+  }
+
+  private startSessionPolling(): void {
+    this.stopSessionPolling();
+    this.sessionPollTimer = window.setInterval(() => {
+      if (this.evacuationSessionId()) {
+        this.refreshEvacuationSession().catch(() => undefined);
+      }
+    }, 3000);
+  }
+
+  private stopSessionPolling(): void {
+    if (this.sessionPollTimer !== null) {
+      window.clearInterval(this.sessionPollTimer);
+      this.sessionPollTimer = null;
+    }
+  }
+
+  private async apiGet<T>(url: string): Promise<T> {
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      const detail = await this.readApiError(response);
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
+    return (await response.json()) as T;
+  }
+
+  private async apiPost<T>(url: string, body: unknown): Promise<T> {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const detail = await this.readApiError(response);
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
+    return (await response.json()) as T;
+  }
+
+  private async readApiError(response: Response): Promise<string> {
+    try {
+      const data = (await response.json()) as { detail?: string };
+      return data.detail ?? '';
+    } catch {
+      return '';
+    }
   }
 
   private async readWorkbookSheetsAsRows(file: File): Promise<WorkbookSheetRows[]> {
@@ -392,33 +624,12 @@ export class EvacuationModeComponent {
 
   private selectBestTeamSheet(sheets: WorkbookSheetRows[]): { rows: string[][]; map: TeamColumnMap } {
     // Plantilla real: la hoja correcta suele llamarse "NOMINATIVO".
+    // La detección de columnas se hace por nombre (fila de cabecera), no por posición.
     const nominativeSheet = sheets.find((s) => this.normalizeSheetName(s.sheetName).includes('NOMINATIVO'));
     if (nominativeSheet) {
-      const row1 = nominativeSheet.rows[0] ?? [];
-      const normalizedRow1 = row1.map((v) => this.normalizeHeader(v));
-      const looksLikeNominative =
-        (normalizedRow1[0] ?? '').includes('EMPLEADO') &&
-        (normalizedRow1[1] ?? '').includes('APELLIDO 1') &&
-        (normalizedRow1[2] ?? '').includes('APELLIDO 2') &&
-        (normalizedRow1[3] ?? '').includes('NOMBRE');
-
-      if (looksLikeNominative) {
-        return {
-          rows: nominativeSheet.rows,
-          map: {
-            headerRowIndex: 0,
-            employeeNumber: 0,   // A
-            firstSurname: 1,     // B
-            secondSurname: 2,    // C
-            firstName: 3,        // D
-            email: 4,            // E
-            phone: 5,            // F
-            area: this.findHeaderIndex(normalizedRow1, ['AREA']),
-            subArea: this.findHeaderIndex(normalizedRow1, ['SUB AREA', 'SUBAREA']),
-            department: this.findHeaderIndex(normalizedRow1, ['DEPARTAMENTO']),
-            emergencyRole: this.findHeaderIndex(normalizedRow1, ['ROL EMERGENCIAS']) ?? 31,
-          },
-        };
+      const nominatedMap = this.detectTeamColumns(nominativeSheet.rows);
+      if (nominatedMap.employeeNumber !== null && nominatedMap.emergencyRole !== null) {
+        return { rows: nominativeSheet.rows, map: nominatedMap };
       }
     }
 
@@ -439,33 +650,20 @@ export class EvacuationModeComponent {
     }
 
     if (!best) {
-      throw new Error('No se pudo leer ninguna hoja del Excel del equipo de evacuaciÃ³n.');
+      throw new Error('No se pudo leer ninguna hoja del Excel del equipo de evacuación.');
     }
 
     return { rows: best.rows, map: best.map };
   }
 
   private selectBestAccessSheet(sheets: WorkbookSheetRows[]): { rows: string[][]; map: AccessColumnMap } {
-    // Plantilla real del snapshot: hoja con encabezado "Informe de EvacuaciÃ³n" y cabecera tabular con "Ãšltimo acceso".
+    // Plantilla real del snapshot: hoja con encabezado "Informe de Evacuación" y cabecera tabular con "Último acceso".
     for (const sheet of sheets) {
       const topRows = (sheet.rows.slice(0, 10) ?? []).map((r) => r.filter(Boolean).join(' ')).join(' | ');
       const topText = this.stripAccents(topRows).toUpperCase();
       if (topText.includes('INFORME DE EVACUACION')) {
         const detected = this.detectAccessColumns(sheet.rows);
-        // Fallback muy estable para la plantilla observada: B..I y cabecera en fila 7 (index 6)
-        if (detected.employeeNumber === null || detected.lastAccess === null) {
-          return {
-            rows: sheet.rows,
-            map: {
-              headerRowIndex: 6,
-              employeeNumber: 1, // B
-              firstName: 2,      // C
-              surname: 3,        // D
-              company: 4,        // E
-              lastAccess: 8,     // I
-            },
-          };
-        }
+        // No forzamos posiciones: si falta una columna, preferimos error explícito.
         return { rows: sheet.rows, map: detected };
       }
     }
@@ -511,47 +709,47 @@ export class EvacuationModeComponent {
     for (let i = 0; i < Math.min(rows.length, 12); i++) {
       const row = rows[i] ?? [];
       const normalized = row.map((v) => this.normalizeHeader(v));
-      const employee = this.findHeaderIndex(normalized, ['N EMPLEADO', 'NO EMPLEADO', 'NUMERO EMPLEADO']);
+      const employee = this.findHeaderIndexByAnyTokenSet(normalized, [
+        ['EMPLEADO'],
+      ]);
       const firstName = this.findHeaderIndex(normalized, ['NOMBRE']);
-      const role = this.findHeaderIndex(normalized, ['ROL EMERGENCIAS', 'ROL EMERGENCIA']);
+      const role = this.findHeaderIndexByAnyTokenSet(normalized, [
+        ['ROL', 'EMERGENCIAS'],
+        ['ROL', 'EMERGENCIA'],
+      ]);
+      const firstSurname = this.findHeaderIndex(normalized, ['APELLIDO 1', 'PRIMER APELLIDO']);
+      const secondSurname = this.findHeaderIndex(normalized, ['APELLIDO 2', 'SEGUNDO APELLIDO']);
+      const email = this.findHeaderIndex(normalized, ['EMAIL', 'CORREO', 'MAIL']);
+      const phone = this.findHeaderIndex(normalized, ['TELEFONO', 'MOVIL', 'TEL']);
+      const area = this.findHeaderIndex(normalized, ['AREA', 'AREA RESPONSABLE']);
+      const subArea = this.findHeaderIndex(normalized, ['SUB AREA', 'SUBAREA', 'SUB-AREA']);
+      const department = this.findHeaderIndex(normalized, ['DEPARTAMENTO']);
 
-      if (employee !== null && (firstName !== null || role !== null)) {
+      // Cabecera del maestro: exigimos al menos los campos clave de identidad + rol.
+      const looksLikeTeamTable =
+        employee !== null &&
+        firstSurname !== null &&
+        secondSurname !== null &&
+        firstName !== null &&
+        role !== null;
+
+      if (looksLikeTeamTable) {
         return {
           headerRowIndex: i,
           employeeNumber: employee,
-          firstSurname: this.findHeaderIndex(normalized, ['APELLIDO 1', 'PRIMER APELLIDO']),
-          secondSurname: this.findHeaderIndex(normalized, ['APELLIDO 2', 'SEGUNDO APELLIDO']),
+          firstSurname,
+          secondSurname,
           firstName,
-          email: this.findHeaderIndex(normalized, ['EMAIL', 'CORREO', 'MAIL']),
-          phone: this.findHeaderIndex(normalized, ['TELEFONO', 'MOVIL', 'TEL']),
-          area: this.findHeaderIndex(normalized, ['AREA']),
-          subArea: this.findHeaderIndex(normalized, ['SUB AREA', 'SUBAREA']),
-          department: this.findHeaderIndex(normalized, ['DEPARTAMENTO']),
+          email,
+          phone,
+          area,
+          subArea,
+          department,
           emergencyRole: role,
         };
       }
 
-      // Fallback para la plantilla real: cabecera en fila 1 con columnas A-F y AF.
-      const hasKnownTeamShape =
-        normalized[0]?.includes('EMPLEADO') &&
-        normalized[1]?.includes('APELLIDO 1') &&
-        normalized[3]?.includes('NOMBRE');
-      if (hasKnownTeamShape) {
-        const roleIndex = role ?? 31; // AF
-        return {
-          headerRowIndex: i,
-          employeeNumber: 0,   // A
-          firstSurname: 1,     // B
-          secondSurname: 2,    // C
-          firstName: 3,        // D
-          email: 4,            // E
-          phone: 5,            // F
-          area: this.findHeaderIndex(normalized, ['AREA']),
-          subArea: this.findHeaderIndex(normalized, ['SUB AREA', 'SUBAREA']),
-          department: this.findHeaderIndex(normalized, ['DEPARTAMENTO']),
-          emergencyRole: roleIndex,
-        };
-      }
+      // Sin fallback por posición: el maestro debe resolverse por títulos de columna.
     }
 
     return defaultMap;
@@ -570,38 +768,46 @@ export class EvacuationModeComponent {
     for (let i = 0; i < Math.min(rows.length, 40); i++) {
       const row = rows[i] ?? [];
       const normalized = row.map((v) => this.normalizeHeader(v));
-      const employee = this.findHeaderIndex(normalized, [
-        'N EMPLEADO TARJETAHABIENTE',
-        'NO EMPLEADO TARJETAHABIENTE',
-        'NUMERO EMPLEADO TARJETAHABIENTE',
-        'N EMPLEADO',
+      const employee = this.findHeaderIndexByAnyTokenSet(normalized, [
+        ['EMPLEADO', 'TARJETAHABIENTE'],
+        ['EMPLEADO'],
       ]);
-      const lastAccess = this.findHeaderIndex(normalized, ['ULTIMO ACCESO']);
+      const firstName = this.findHeaderIndexByAnyTokenSet(normalized, [
+        ['NOMBRE', 'PILA'],
+        ['NOMBRE'],
+      ]);
+      const surname = this.findHeaderIndexByAnyTokenSet(normalized, [['APELLIDO']]);
+      const company = this.findHeaderIndexByAnyTokenSet(normalized, [
+        ['EMPRESA', 'TARJETAHABIENTE'],
+        ['EMPRESA'],
+      ]);
+      const lastAccess = this.findHeaderIndexByAnyTokenSet(normalized, [['ULTIMO', 'ACCESO']]);
 
       if (employee !== null && lastAccess !== null) {
         return {
           headerRowIndex: i,
           employeeNumber: employee,
-          firstName: this.findHeaderIndex(normalized, ['NOMBRE DE PILA', 'NOMBRE']),
-          surname: this.findHeaderIndex(normalized, ['APELLIDO']),
-          company: this.findHeaderIndex(normalized, ['EMPRESA TARJETAHABIENTE', 'EMPRESA']),
+          firstName,
+          surname,
+          company,
           lastAccess,
         };
       }
 
-      // Fallback para la plantilla real del snapshot: cabecera tÃ­pica en fila ~7, columnas B..I.
+      // Cabecera tipo snapshot: validamos por tokens, pero sin inventar posiciones.
       const hasKnownAccessShape =
-        normalized.some((h) => h.includes('ULTIMO ACCESO')) &&
-        normalized.some((h) => h.includes('APELLIDO')) &&
-        normalized.some((h) => h.includes('NOMBRE DE PILA') || h === 'NOMBRE');
+        employee !== null &&
+        firstName !== null &&
+        surname !== null &&
+        lastAccess !== null;
       if (hasKnownAccessShape) {
         return {
           headerRowIndex: i,
-          employeeNumber: employee ?? 1, // B
-          firstName: this.findHeaderIndex(normalized, ['NOMBRE DE PILA', 'NOMBRE']) ?? 2, // C
-          surname: this.findHeaderIndex(normalized, ['APELLIDO']) ?? 3, // D
-          company: this.findHeaderIndex(normalized, ['EMPRESA TARJETAHABIENTE', 'EMPRESA']) ?? 4, // E
-          lastAccess: lastAccess ?? 8, // I
+          employeeNumber: employee,
+          firstName,
+          surname,
+          company,
+          lastAccess,
         };
       }
     }
@@ -634,9 +840,22 @@ export class EvacuationModeComponent {
   private parseTeamRows(rows: string[][], map: TeamColumnMap): { validRows: TeamMemberRow[]; invalidRows: InvalidRow[] } {
     const validRows: TeamMemberRow[] = [];
     const invalidRows: InvalidRow[] = [];
+    const tableColumns = this.uniqueIndexes([
+      map.employeeNumber,
+      map.firstSurname,
+      map.secondSurname,
+      map.firstName,
+      map.email,
+      map.phone,
+      map.area,
+      map.subArea,
+      map.department,
+      map.emergencyRole,
+    ]);
 
     for (let i = map.headerRowIndex + 1; i < rows.length; i++) {
       const row = rows[i] ?? [];
+      if (this.isTableTerminatorRow(row, tableColumns)) break;
       if (this.isRowEmpty(row)) continue;
 
       const emergencyRoleRaw = this.getCell(row, map.emergencyRole);
@@ -646,7 +865,7 @@ export class EvacuationModeComponent {
 
       const employee = this.normalizeEmployeeNumber(this.getCell(row, map.employeeNumber));
       if (!employee) {
-        invalidRows.push({ source: 'team', rowNumber: i + 1, reason: 'NÂº empleado vacÃ­o o invÃ¡lido' });
+        invalidRows.push({ source: 'team', rowNumber: i + 1, reason: 'Nº empleado vacío o inválido' });
         continue;
       }
 
@@ -676,9 +895,17 @@ export class EvacuationModeComponent {
   private parseAccessRows(rows: string[][], map: AccessColumnMap): { validRows: AccessSnapshotRow[]; invalidRows: InvalidRow[] } {
     const validRows: AccessSnapshotRow[] = [];
     const invalidRows: InvalidRow[] = [];
+    const tableColumns = this.uniqueIndexes([
+      map.employeeNumber,
+      map.firstName,
+      map.surname,
+      map.company,
+      map.lastAccess,
+    ]);
 
     for (let i = map.headerRowIndex + 1; i < rows.length; i++) {
       const row = rows[i] ?? [];
+      if (this.isTableTerminatorRow(row, tableColumns)) break;
       if (this.isRowEmpty(row)) continue;
 
       const employee = this.normalizeEmployeeNumber(this.getCell(row, map.employeeNumber));
@@ -739,6 +966,17 @@ export class EvacuationModeComponent {
     return row.every((cell) => this.cellToText(cell) === '');
   }
 
+  private uniqueIndexes(indexes: MaybeIndex[]): number[] {
+    return Array.from(new Set(indexes.filter((i): i is number => i !== null && i >= 0)));
+  }
+
+  private isTableTerminatorRow(row: string[], relevantIndexes: number[]): boolean {
+    if (relevantIndexes.length === 0) {
+      return this.isRowEmpty(row);
+    }
+    return relevantIndexes.every((idx) => this.getCell(row, idx) === '');
+  }
+
   private normalizeEmployeeNumber(value: string): string {
     const trimmed = this.cellToText(value);
     if (!trimmed) return '';
@@ -753,9 +991,9 @@ export class EvacuationModeComponent {
 
   private normalizeHeader(value: string): string {
     return this.stripAccents(this.cellToText(value))
-      .replace(/[ÂºÂ°Âª]/g, ' ')
+      .replace(/[\u00BA\u00B0\u00AA]/g, ' ')
       .toUpperCase()
-      // Quita cualquier sÃ­mbolo raro (incluye NBSP, comillas especiales, etc.)
+      // Quita cualquier símbolo raro (incluye NBSP, comillas especiales, etc.)
       .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -783,6 +1021,19 @@ export class EvacuationModeComponent {
     return null;
   }
 
+  private findHeaderIndexByAnyTokenSet(normalizedHeaders: string[], tokenSets: string[][]): MaybeIndex {
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      const header = normalizedHeaders[i];
+      if (!header) continue;
+      for (const tokens of tokenSets) {
+        if (tokens.every((token) => header.includes(token))) {
+          return i;
+        }
+      }
+    }
+    return null;
+  }
+
   private formatMapping(label: string, index: MaybeIndex): { label: string; value: string } {
     return {
       label,
@@ -801,6 +1052,8 @@ export class EvacuationModeComponent {
     return out;
   }
 }
+
+
 
 
 
